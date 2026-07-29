@@ -93,7 +93,7 @@ struct ContentView: View {
                                 .font(.system(size: 13, weight: .bold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(settings.enableRegexDefault ? Color.purple.opacity(0.8) : Color.white.opacity(0.1))
+                                .background(settings.enableRegexDefault ? Color.blue.opacity(0.8) : Color.white.opacity(0.1))
                                 .cornerRadius(4)
                                 .foregroundColor(settings.enableRegexDefault ? .white : .secondary)
                         }
