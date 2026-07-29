@@ -7,14 +7,21 @@ import MacEverythingCore
 class AppDelegate: NSObject, NSApplicationDelegate {
     var searchWindow: NSWindow!
     var settingsWindow: NSWindow!
+    var aboutWindow: NSWindow!
     var statusItem: NSStatusItem!
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenu()
         setupSearchWindow()
         setupSettingsWindow()
+        setupAboutWindow()
         setupStatusBar()
         registerGlobalHotkey()
+        
+        // Check for updates automatically on launch (after a brief delay)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+            UpdateManager.shared.checkForUpdates(manual: false)
+        }
         
         // Initialize the Rust engine in the background to prevent UI freezing
         NotificationCenter.default.post(name: NSNotification.Name("IndexingStarted"), object: nil)
@@ -85,6 +92,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow.isReleasedWhenClosed = false
     }
     
+    func setupAboutWindow() {
+        let aboutView = AboutView()
+        
+        aboutWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 350, height: 250),
+            styleMask: [.titled, .closable],
+            backing: .buffered, defer: false)
+        
+        aboutWindow.center()
+        aboutWindow.title = "About MacEverything"
+        aboutWindow.contentView = NSHostingView(rootView: aboutView)
+        aboutWindow.isReleasedWhenClosed = false
+    }
+    
     func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         
@@ -118,7 +139,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             
             menu.addItem(NSMenuItem.separator())
             menu.addItem(NSMenuItem(title: "查询语法帮助...", action: #selector(showHelpDoc), keyEquivalent: "h"))
+            menu.addItem(NSMenuItem(title: "Check for Updates...", action: #selector(checkUpdates), keyEquivalent: "u"))
             menu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
+            menu.addItem(NSMenuItem(title: "About MacEverything", action: #selector(showAbout), keyEquivalent: ""))
             menu.addItem(NSMenuItem.separator())
             menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
             
@@ -150,6 +173,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showSettings() {
         settingsWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @objc func showAbout() {
+        aboutWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @objc func checkUpdates() {
+        UpdateManager.shared.checkForUpdates(manual: true)
     }
     
     func registerGlobalHotkey() {

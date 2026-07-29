@@ -61,6 +61,8 @@ swiftc \
     MacEverything/ContentView.swift \
     MacEverything/SettingsView.swift \
     MacEverything/HotKeyManager.swift \
+    MacEverything/UpdateManager.swift \
+    MacEverything/AboutView.swift \
     mac-everything-core/target/release/libmac_everything_core.a \
     -I MacEverything \
     -framework SwiftUI \
