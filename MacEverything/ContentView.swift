@@ -26,10 +26,10 @@ struct ContentView: View {
     
     // Advanced Filters State
     @State private var showAdvancedFilters = false
-    @State private var filterKind: String? = nil
+    @State private var filterKinds: Set<String> = []
     @State private var filterDate: String? = nil
     @State private var filterSize: String? = nil
-    @State private var filterExt: String = ""
+    @State private var filterExts: Set<String> = []
     
     @ObservedObject var settings = AppSettings.shared
     
@@ -141,10 +141,10 @@ struct ContentView: View {
                 // Advanced Filters Panel
                 if showAdvancedFilters {
                     AdvancedFilterView(
-                        filterKind: $filterKind,
+                        filterKinds: $filterKinds,
                         filterDate: $filterDate,
                         filterSize: $filterSize,
-                        filterExt: $filterExt,
+                        filterExts: $filterExts,
                         onFilterChanged: { performSearch(query: query) }
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -153,14 +153,14 @@ struct ContentView: View {
                 }
                 
                 // Active Tags Bar
-                if filterKind != nil || filterDate != nil || filterSize != nil || !filterExt.isEmpty {
+                if !filterKinds.isEmpty || filterDate != nil || filterSize != nil || !filterExts.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            if let kind = filterKind {
-                                ActiveTagView(label: "类别: \(kind)") { filterKind = nil; performSearch(query: query) }
+                            ForEach(Array(filterKinds).sorted(), id: \.self) { kind in
+                                ActiveTagView(label: "类别: \(kind)") { filterKinds.remove(kind); performSearch(query: query) }
                             }
-                            if let ext = filterExt.isEmpty ? nil : filterExt {
-                                ActiveTagView(label: "扩展名: \(ext)") { filterExt = ""; performSearch(query: query) }
+                            ForEach(Array(filterExts).sorted(), id: \.self) { ext in
+                                ActiveTagView(label: "扩展名: \(ext)") { filterExts.remove(ext); performSearch(query: query) }
                             }
                             if let size = filterSize {
                                 ActiveTagView(label: "大小: \(size)") { filterSize = nil; performSearch(query: query) }
@@ -286,10 +286,10 @@ struct ContentView: View {
             finalQuery = "regex:\(query)"
         }
         
-        if let kind = filterKind { finalQuery += " kind:\(kind)" }
+        if !filterKinds.isEmpty { finalQuery += " kind:\(filterKinds.joined(separator: "|"))" }
         if let date = filterDate { finalQuery += " date:\(date)" }
         if let size = filterSize { finalQuery += " size:\(size)" }
-        if !filterExt.isEmpty { finalQuery += " ext:\(filterExt)" }
+        if !filterExts.isEmpty { finalQuery += " ext:\(filterExts.joined(separator: "|"))" }
         
         finalQuery.withCString { ptr in
             if let resPtr = search(ptr, 100, settings.enablePathSearch) {
@@ -647,10 +647,10 @@ struct HelpCard: View {
 // MARK: - Advanced Filters UI
 
 struct AdvancedFilterView: View {
-    @Binding var filterKind: String?
+    @Binding var filterKinds: Set<String>
     @Binding var filterDate: String?
     @Binding var filterSize: String?
-    @Binding var filterExt: String
+    @Binding var filterExts: Set<String>
     var onFilterChanged: () -> Void
     
     let kinds = [
@@ -668,7 +668,7 @@ struct AdvancedFilterView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            FilterRow(title: "类别", options: kinds, selectedValue: $filterKind, onChanged: onFilterChanged)
+            FilterRowMulti(title: "类别", options: kinds, selectedValues: $filterKinds, onChanged: onFilterChanged)
             FilterRow(title: "时间", options: dates, selectedValue: $filterDate, onChanged: onFilterChanged)
             FilterRow(title: "大小", options: sizes, selectedValue: $filterSize, onChanged: onFilterChanged)
             
@@ -680,16 +680,20 @@ struct AdvancedFilterView: View {
                 
                 ForEach(exts, id: \.self) { ext in
                     Button(action: {
-                        filterExt = ext
+                        if filterExts.contains(ext) {
+                            filterExts.remove(ext)
+                        } else {
+                            filterExts.insert(ext)
+                        }
                         onFilterChanged()
                     }) {
                         Text(ext)
                             .font(.system(size: 12))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(filterExt == ext ? Color.accentColor.opacity(0.8) : Color.white.opacity(0.1))
+                            .background(filterExts.contains(ext) ? Color.accentColor.opacity(0.8) : Color.white.opacity(0.1))
                             .cornerRadius(12)
-                            .foregroundColor(filterExt == ext ? .white : .primary)
+                            .foregroundColor(filterExts.contains(ext) ? .white : .primary)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -702,6 +706,42 @@ struct AdvancedFilterView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.white.opacity(0.1), lineWidth: 1)
         )
+    }
+}
+
+struct FilterRowMulti: View {
+    let title: String
+    let options: [(label: String, value: String)]
+    @Binding var selectedValues: Set<String>
+    var onChanged: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(width: 40, alignment: .leading)
+            
+            ForEach(options, id: \.value) { option in
+                Button(action: {
+                    if selectedValues.contains(option.value) {
+                        selectedValues.remove(option.value)
+                    } else {
+                        selectedValues.insert(option.value)
+                    }
+                    onChanged()
+                }) {
+                    Text(option.label)
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(selectedValues.contains(option.value) ? Color.accentColor.opacity(0.8) : Color.white.opacity(0.1))
+                        .cornerRadius(12)
+                        .foregroundColor(selectedValues.contains(option.value) ? .white : .primary)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
     }
 }
 

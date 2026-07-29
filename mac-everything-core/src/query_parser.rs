@@ -70,7 +70,20 @@ impl QueryParser {
                 }
             } else if part.starts_with("ext:") {
                 let term = part.strip_prefix("ext:").unwrap();
-                and_nodes.push(QueryNode::Extension(term.to_lowercase()));
+                if term.contains('|') {
+                    let or_parts: Vec<&str> = term.split('|').collect();
+                    let mut or_nodes = Vec::new();
+                    for op in or_parts {
+                        if !op.is_empty() {
+                            or_nodes.push(QueryNode::Extension(op.to_lowercase()));
+                        }
+                    }
+                    if !or_nodes.is_empty() {
+                        and_nodes.push(QueryNode::Or(or_nodes));
+                    }
+                } else {
+                    and_nodes.push(QueryNode::Extension(term.to_lowercase()));
+                }
             } else if part.starts_with("path:") || part.starts_with("in:") {
                 let term = if part.starts_with("path:") {
                     part.strip_prefix("path:").unwrap()
@@ -80,7 +93,20 @@ impl QueryParser {
                 and_nodes.push(QueryNode::PathContains(term.to_lowercase()));
             } else if part.starts_with("kind:") {
                 let term = part.strip_prefix("kind:").unwrap();
-                and_nodes.push(QueryNode::Kind(term.to_lowercase()));
+                if term.contains('|') {
+                    let or_parts: Vec<&str> = term.split('|').collect();
+                    let mut or_nodes = Vec::new();
+                    for op in or_parts {
+                        if !op.is_empty() {
+                            or_nodes.push(QueryNode::Kind(op.to_lowercase()));
+                        }
+                    }
+                    if !or_nodes.is_empty() {
+                        and_nodes.push(QueryNode::Or(or_nodes));
+                    }
+                } else {
+                    and_nodes.push(QueryNode::Kind(term.to_lowercase()));
+                }
             } else if part.starts_with("size:") {
                 let term = part.strip_prefix("size:").unwrap().to_lowercase();
                 if let Some(node) = Self::parse_size_op(&term) {
