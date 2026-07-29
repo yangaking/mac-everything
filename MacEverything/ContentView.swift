@@ -86,6 +86,21 @@ struct ContentView: View {
                     // Settings & Help Link & Path Search
                     HStack(spacing: 12) {
                         Button(action: {
+                            settings.enableRegexDefault.toggle()
+                            performSearch(query: query)
+                        }) {
+                            Text(".*")
+                                .font(.system(size: 13, weight: .bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(settings.enableRegexDefault ? Color.purple.opacity(0.8) : Color.white.opacity(0.1))
+                                .cornerRadius(4)
+                                .foregroundColor(settings.enableRegexDefault ? .white : .secondary)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .help("开启/关闭正则搜索")
+                        
+                        Button(action: {
                             settings.enablePathSearch.toggle()
                             performSearch(query: query)
                         }) {

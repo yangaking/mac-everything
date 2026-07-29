@@ -3,8 +3,9 @@ import Carbon
 
 class HotKeyManager {
     static let shared = HotKeyManager()
-    private var hotKeyRef: EventHotKeyRef?
-    var onHotKeyPressed: (() -> Void)?
+    
+    private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
+    var onHotKeyPressed: [UInt32: () -> Void] = [:]
     
     private init() {
         // Register carbon event handler
@@ -12,20 +13,40 @@ class HotKeyManager {
         let ptr = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         
         InstallEventHandler(GetEventDispatcherTarget(), { (nextHandler, theEvent, userData) -> OSStatus in
-            let mySelf = Unmanaged<HotKeyManager>.fromOpaque(userData!).takeUnretainedValue()
-            mySelf.onHotKeyPressed?()
+            guard let event = theEvent else { return noErr }
+            
+            var hotKeyID = EventHotKeyID()
+            let status = GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                MemoryLayout<EventHotKeyID>.size,
+                nil,
+                &hotKeyID
+            )
+            
+            if status == noErr {
+                let mySelf = Unmanaged<HotKeyManager>.fromOpaque(userData!).takeUnretainedValue()
+                mySelf.onHotKeyPressed[hotKeyID.id]?()
+            }
             return noErr
         }, 1, &eventType, ptr, nil)
     }
     
-    func registerGlobalHotKey(keyCode: UInt32 = 49, modifierFlags: UInt32 = UInt32(optionKey)) -> Bool {
-        // Unregister existing hotkey if any
-        if let currentRef = hotKeyRef {
+    func registerGlobalHotKey(id: UInt32, keyCode: UInt32, modifierFlags: UInt32) -> Bool {
+        // Unregister existing hotkey for this ID if any
+        if let currentRef = hotKeyRefs[id] {
             UnregisterEventHotKey(currentRef)
-            hotKeyRef = nil
+            hotKeyRefs.removeValue(forKey: id)
         }
         
-        let hotKeyID = EventHotKeyID(signature: OSType(0x4d455654), id: 1) // "MEVT"
+        // If keyCode and modifiers are 0, it means disabled
+        if keyCode == 0 && modifierFlags == 0 {
+            return true
+        }
+        
+        let hotKeyID = EventHotKeyID(signature: OSType(0x4d455654), id: id) // "MEVT"
         var newHotKeyRef: EventHotKeyRef? = nil
         
         let status = RegisterEventHotKey(
@@ -37,8 +58,8 @@ class HotKeyManager {
             &newHotKeyRef
         )
         
-        if status == noErr {
-            self.hotKeyRef = newHotKeyRef
+        if status == noErr, let ref = newHotKeyRef {
+            self.hotKeyRefs[id] = ref
             return true
         } else {
             return false

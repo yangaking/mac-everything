@@ -185,21 +185,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func registerGlobalHotkey() {
-        HotKeyManager.shared.onHotKeyPressed = { [weak self] in
+        // Main window toggle (ID 1)
+        HotKeyManager.shared.onHotKeyPressed[1] = { [weak self] in
             DispatchQueue.main.async {
                 self?.toggleSearchWindow()
             }
         }
         
         let success = HotKeyManager.shared.registerGlobalHotKey(
+            id: 1,
             keyCode: AppSettings.shared.hotkeyCode,
             modifierFlags: AppSettings.shared.hotkeyModifiers
         )
         
-        if !success {
+        if !success && AppSettings.shared.hotkeyCode != 0 {
             let alert = NSAlert()
             alert.messageText = "Hotkey Conflict"
-            alert.informativeText = "The hotkey is already used by another application or macOS Spotlight. Please go to Settings to change it."
+            alert.informativeText = "The global hotkey is already used by another application or macOS Spotlight. Please go to Settings to change it."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Open Settings")
             alert.addButton(withTitle: "Ignore")
@@ -208,6 +210,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 showSettings()
             }
         }
+        
+        // Regex toggle (ID 2)
+        HotKeyManager.shared.onHotKeyPressed[2] = {
+            DispatchQueue.main.async {
+                AppSettings.shared.enableRegexDefault.toggle()
+                // If search window is open, we can post a notification to trigger a search update
+                NotificationCenter.default.post(name: NSNotification.Name("TriggerSearch"), object: nil)
+            }
+        }
+        
+        _ = HotKeyManager.shared.registerGlobalHotKey(
+            id: 2,
+            keyCode: AppSettings.shared.regexHotkeyCode,
+            modifierFlags: AppSettings.shared.regexHotkeyModifiers
+        )
+        
+        // Path search toggle (ID 3)
+        HotKeyManager.shared.onHotKeyPressed[3] = {
+            DispatchQueue.main.async {
+                AppSettings.shared.enablePathSearch.toggle()
+                NotificationCenter.default.post(name: NSNotification.Name("TriggerSearch"), object: nil)
+            }
+        }
+        
+        _ = HotKeyManager.shared.registerGlobalHotKey(
+            id: 3,
+            keyCode: AppSettings.shared.pathHotkeyCode,
+            modifierFlags: AppSettings.shared.pathHotkeyModifiers
+        )
     }
     
     func toggleSearchWindow() {
