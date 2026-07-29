@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Carbon
 import MacEverythingCore
 
 
@@ -21,6 +22,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check for updates automatically on launch (after a brief delay)
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
             UpdateManager.shared.checkForUpdates(manual: false)
+        }
+        
+        // Setup local event monitor for local hotkeys (Regex, Path)
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            
+            // Convert NSEvent modifier flags to Carbon modifiers for comparison
+            var carbonMods: UInt32 = 0
+            if flags.contains(.control) { carbonMods |= UInt32(controlKey) }
+            if flags.contains(.option) { carbonMods |= UInt32(optionKey) }
+            if flags.contains(.shift) { carbonMods |= UInt32(shiftKey) }
+            if flags.contains(.command) { carbonMods |= UInt32(cmdKey) }
+            
+            let code = UInt32(event.keyCode)
+            let settings = AppSettings.shared
+            
+            if code == settings.regexHotkeyCode && carbonMods == settings.regexHotkeyModifiers {
+                settings.enableRegexDefault.toggle()
+                NotificationCenter.default.post(name: NSNotification.Name("TriggerSearch"), object: nil)
+                return nil // Consume the event
+            } else if code == settings.pathHotkeyCode && carbonMods == settings.pathHotkeyModifiers {
+                settings.enablePathSearch.toggle()
+                NotificationCenter.default.post(name: NSNotification.Name("TriggerSearch"), object: nil)
+                return nil // Consume the event
+            }
+            
+            return event
         }
         
         // Initialize the Rust engine in the background to prevent UI freezing
@@ -210,35 +238,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 showSettings()
             }
         }
-        
-        // Regex toggle (ID 2)
-        HotKeyManager.shared.onHotKeyPressed[2] = {
-            DispatchQueue.main.async {
-                AppSettings.shared.enableRegexDefault.toggle()
-                // If search window is open, we can post a notification to trigger a search update
-                NotificationCenter.default.post(name: NSNotification.Name("TriggerSearch"), object: nil)
-            }
-        }
-        
-        _ = HotKeyManager.shared.registerGlobalHotKey(
-            id: 2,
-            keyCode: AppSettings.shared.regexHotkeyCode,
-            modifierFlags: AppSettings.shared.regexHotkeyModifiers
-        )
-        
-        // Path search toggle (ID 3)
-        HotKeyManager.shared.onHotKeyPressed[3] = {
-            DispatchQueue.main.async {
-                AppSettings.shared.enablePathSearch.toggle()
-                NotificationCenter.default.post(name: NSNotification.Name("TriggerSearch"), object: nil)
-            }
-        }
-        
-        _ = HotKeyManager.shared.registerGlobalHotKey(
-            id: 3,
-            keyCode: AppSettings.shared.pathHotkeyCode,
-            modifierFlags: AppSettings.shared.pathHotkeyModifiers
-        )
     }
     
     func toggleSearchWindow() {

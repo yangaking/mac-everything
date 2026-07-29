@@ -69,19 +69,33 @@ class AppSettings: ObservableObject {
             self.hotkeyString = UserDefaults.standard.string(forKey: "hotkeyString") ?? "Custom"
         }
         
-        // Regex defaults (Disabled)
+        // Regex defaults (Cmd+R)
         let savedRegexCode = UserDefaults.standard.integer(forKey: "regexHotkeyCode")
         let savedRegexMods = UserDefaults.standard.integer(forKey: "regexHotkeyModifiers")
-        self.regexHotkeyCode = UInt32(savedRegexCode)
-        self.regexHotkeyModifiers = UInt32(savedRegexMods)
-        self.regexHotkeyString = UserDefaults.standard.string(forKey: "regexHotkeyString") ?? "Not Set"
+        let savedRegexString = UserDefaults.standard.string(forKey: "regexHotkeyString")
+        if savedRegexCode == 0 && savedRegexMods == 0 && savedRegexString == nil {
+            self.regexHotkeyCode = 15 // R
+            self.regexHotkeyModifiers = UInt32(cmdKey)
+            self.regexHotkeyString = "⌘ R"
+        } else {
+            self.regexHotkeyCode = UInt32(savedRegexCode)
+            self.regexHotkeyModifiers = UInt32(savedRegexMods)
+            self.regexHotkeyString = savedRegexString ?? "Not Set"
+        }
         
-        // Path defaults (Disabled)
+        // Path defaults (Cmd+P)
         let savedPathCode = UserDefaults.standard.integer(forKey: "pathHotkeyCode")
         let savedPathMods = UserDefaults.standard.integer(forKey: "pathHotkeyModifiers")
-        self.pathHotkeyCode = UInt32(savedPathCode)
-        self.pathHotkeyModifiers = UInt32(savedPathMods)
-        self.pathHotkeyString = UserDefaults.standard.string(forKey: "pathHotkeyString") ?? "Not Set"
+        let savedPathString = UserDefaults.standard.string(forKey: "pathHotkeyString")
+        if savedPathCode == 0 && savedPathMods == 0 && savedPathString == nil {
+            self.pathHotkeyCode = 35 // P
+            self.pathHotkeyModifiers = UInt32(cmdKey)
+            self.pathHotkeyString = "⌘ P"
+        } else {
+            self.pathHotkeyCode = UInt32(savedPathCode)
+            self.pathHotkeyModifiers = UInt32(savedPathMods)
+            self.pathHotkeyString = savedPathString ?? "Not Set"
+        }
     }
 }
 
@@ -101,12 +115,12 @@ struct SettingsView: View {
             
             Divider()
             
-            Text("Global Hotkeys")
+            Text("Shortcuts")
                 .font(.headline)
             
-            hotkeyRow(title: "Toggle Search Window:", id: 1, keyString: settings.hotkeyString)
-            hotkeyRow(title: "Toggle Regex Search:", id: 2, keyString: settings.regexHotkeyString)
-            hotkeyRow(title: "Toggle Path Search:", id: 3, keyString: settings.pathHotkeyString)
+            hotkeyRow(title: "Global Toggle Window:", id: 1, keyString: settings.hotkeyString)
+            hotkeyRow(title: "Local Toggle Regex:", id: 2, keyString: settings.regexHotkeyString)
+            hotkeyRow(title: "Local Toggle Path:", id: 3, keyString: settings.pathHotkeyString)
             
             Spacer()
         }
@@ -193,6 +207,7 @@ struct SettingsView: View {
                 self.settings.hotkeyCode = code
                 self.settings.hotkeyModifiers = carbonMods
                 self.settings.hotkeyString = str
+                _ = HotKeyManager.shared.registerGlobalHotKey(id: 1, keyCode: code, modifierFlags: carbonMods)
             } else if self.recordingId == 2 {
                 self.settings.regexHotkeyCode = code
                 self.settings.regexHotkeyModifiers = carbonMods
@@ -202,9 +217,6 @@ struct SettingsView: View {
                 self.settings.pathHotkeyModifiers = carbonMods
                 self.settings.pathHotkeyString = str
             }
-            
-            // Re-register hotkey globally
-            _ = HotKeyManager.shared.registerGlobalHotKey(id: self.recordingId, keyCode: code, modifierFlags: carbonMods)
             
             self.stopRecording()
             return nil // Consume event
