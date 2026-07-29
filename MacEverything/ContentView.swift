@@ -31,6 +31,8 @@ struct ContentView: View {
     @State private var filterSize: String? = nil
     @State private var filterExts: Set<String> = []
     
+    @State private var isEditingFilter: Bool = false
+    
     @ObservedObject var settings = AppSettings.shared
     
     var body: some View {
@@ -145,6 +147,7 @@ struct ContentView: View {
                         filterDate: $filterDate,
                         filterSize: $filterSize,
                         filterExts: $filterExts,
+                        isEditingFilter: $isEditingFilter,
                         onFilterChanged: { performSearch(query: query) }
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -399,6 +402,10 @@ struct ContentView: View {
             }
             // Enter
             else if keyCode == 36 {
+                if self.isEditingFilter {
+                    return event
+                }
+                
                 if selectedIndex < results.count {
                     let path = results[selectedIndex].path
                     if event.modifierFlags.contains(.command) {
@@ -653,10 +660,12 @@ struct AdvancedFilterView: View {
     @Binding var filterDate: String?
     @Binding var filterSize: String?
     @Binding var filterExts: Set<String>
+    @Binding var isEditingFilter: Bool
     var onFilterChanged: () -> Void
     
     @State private var customSizeOp: String = ">"
     @State private var customSizeVal: String = ""
+    @State private var customSizeUnit: String = "mb"
     @State private var customExt: String = ""
     
     let kinds = [
@@ -677,9 +686,9 @@ struct AdvancedFilterView: View {
             FilterRowMulti(title: "类别", options: kinds, selectedValues: $filterKinds, onChanged: onFilterChanged)
             FilterRow(title: "时间", options: dates, selectedValue: $filterDate, onChanged: onFilterChanged)
             
-            SizeFilterRow(filterSize: $filterSize, customSizeOp: $customSizeOp, customSizeVal: $customSizeVal, sizes: sizes, onFilterChanged: onFilterChanged)
+            SizeFilterRow(filterSize: $filterSize, customSizeOp: $customSizeOp, customSizeVal: $customSizeVal, customSizeUnit: $customSizeUnit, isEditingFilter: $isEditingFilter, sizes: sizes, onFilterChanged: onFilterChanged)
             
-            ExtFilterRow(filterExts: $filterExts, customExt: $customExt, exts: exts, onFilterChanged: onFilterChanged)
+            ExtFilterRow(filterExts: $filterExts, customExt: $customExt, isEditingFilter: $isEditingFilter, exts: exts, onFilterChanged: onFilterChanged)
         }
         .padding(16)
         .background(Color.black.opacity(0.4))
@@ -808,6 +817,8 @@ struct SizeFilterRow: View {
     @Binding var filterSize: String?
     @Binding var customSizeOp: String
     @Binding var customSizeVal: String
+    @Binding var customSizeUnit: String
+    @Binding var isEditingFilter: Bool
     let sizes: [(label: String, value: String)]
     var onFilterChanged: () -> Void
     
@@ -848,11 +859,22 @@ struct SizeFilterRow: View {
             .frame(width: 45)
             .labelsHidden()
             
-            TextField("如 500kb", text: $customSizeVal)
+            TextField("数值", text: $customSizeVal, onEditingChanged: { editing in
+                isEditingFilter = editing
+            })
                 .textFieldStyle(RoundedBorderTextFieldStyle())
-                .frame(width: 70)
+                .frame(width: 50)
                 .font(.system(size: 12))
                 .onSubmit { applyCustomSize() }
+                
+            Picker("", selection: $customSizeUnit) {
+                Text("KB").tag("kb")
+                Text("MB").tag("mb")
+                Text("GB").tag("gb")
+            }
+            .pickerStyle(MenuPickerStyle())
+            .frame(width: 55)
+            .labelsHidden()
             
             if !customSizeVal.isEmpty {
                 Button(action: applyCustomSize) {
@@ -871,8 +893,7 @@ struct SizeFilterRow: View {
     private func applyCustomSize() {
         let val = customSizeVal.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if !val.isEmpty {
-            let finalVal = (val.hasSuffix("kb") || val.hasSuffix("mb") || val.hasSuffix("gb")) ? val : "\(val)mb"
-            filterSize = "\(customSizeOp)\(finalVal)"
+            filterSize = "\(customSizeOp)\(val)\(customSizeUnit)"
             onFilterChanged()
         }
     }
@@ -881,6 +902,7 @@ struct SizeFilterRow: View {
 struct ExtFilterRow: View {
     @Binding var filterExts: Set<String>
     @Binding var customExt: String
+    @Binding var isEditingFilter: Bool
     let exts: [String]
     var onFilterChanged: () -> Void
     
@@ -912,7 +934,9 @@ struct ExtFilterRow: View {
             }
             
             // Custom Ext Input
-            TextField("如 apk", text: $customExt)
+            TextField("如 apk", text: $customExt, onEditingChanged: { editing in
+                isEditingFilter = editing
+            })
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .frame(width: 60)
                 .font(.system(size: 12))
