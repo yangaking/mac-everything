@@ -137,7 +137,7 @@ impl Indexer {
                         else if full.starts_with(s) { best_score = Some(70); }
                         else if init == s { best_score = Some(65); }
                         else if record.name_lower.contains(s) { best_score = Some(50); }
-                        else if full.contains(s) { best_score = Some(40); }
+                        else if full.contains(s) && s.len() > 1 { best_score = Some(40); }
                         else if init.contains(s) { best_score = Some(30); }
                     }
                 } else {
@@ -252,7 +252,7 @@ impl Indexer {
     }
 
     /// High-performance parallel search with scoring and sorting
-    pub fn search(&self, query_string: &str, limit: usize, enable_path_search: bool) -> Vec<String> {
+    pub fn search(&self, query_string: &str, limit: usize, enable_path_search: bool, sort_col: u8, sort_asc: bool) -> Vec<String> {
         let records = self.records.read().unwrap();
         let dir_paths = self.dir_paths.read().unwrap();
         
@@ -270,8 +270,82 @@ impl Indexer {
             })
             .collect();
             
-        // Sort descending by score
-        matched_records.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        // Sort
+        match sort_col {
+            1 => {
+                // Name
+                matched_records.sort_unstable_by(|a, b| {
+                    if sort_asc {
+                        a.1.name_lower.cmp(&b.1.name_lower)
+                    } else {
+                        b.1.name_lower.cmp(&a.1.name_lower)
+                    }
+                });
+            },
+            2 => {
+                // Size
+                matched_records.sort_unstable_by(|a, b| {
+                    let cmp = if sort_asc {
+                        a.1.size.cmp(&b.1.size)
+                    } else {
+                        b.1.size.cmp(&a.1.size)
+                    };
+                    if cmp == std::cmp::Ordering::Equal {
+                        a.1.name_lower.cmp(&b.1.name_lower)
+                    } else {
+                        cmp
+                    }
+                });
+            },
+            3 => {
+                // ModifiedTime
+                matched_records.sort_unstable_by(|a, b| {
+                    let cmp = if sort_asc {
+                        a.1.modified_time.cmp(&b.1.modified_time)
+                    } else {
+                        b.1.modified_time.cmp(&a.1.modified_time)
+                    };
+                    if cmp == std::cmp::Ordering::Equal {
+                        a.1.name_lower.cmp(&b.1.name_lower)
+                    } else {
+                        cmp
+                    }
+                });
+            },
+            4 => {
+                // Kind (Extension)
+                matched_records.sort_unstable_by(|a, b| {
+                    let ext_a = a.1.name_lower.split('.').last().unwrap_or("");
+                    let ext_b = b.1.name_lower.split('.').last().unwrap_or("");
+                    let cmp = if sort_asc {
+                        ext_a.cmp(ext_b)
+                    } else {
+                        ext_b.cmp(ext_a)
+                    };
+                    if cmp == std::cmp::Ordering::Equal {
+                        a.1.name_lower.cmp(&b.1.name_lower)
+                    } else {
+                        cmp
+                    }
+                });
+            },
+            _ => {
+                // Default: Score desc, then ModifiedTime desc, then Name asc
+                matched_records.sort_unstable_by(|a, b| {
+                    let cmp = b.0.cmp(&a.0);
+                    if cmp == std::cmp::Ordering::Equal {
+                        let t_cmp = b.1.modified_time.cmp(&a.1.modified_time);
+                        if t_cmp == std::cmp::Ordering::Equal {
+                            a.1.name_lower.cmp(&b.1.name_lower)
+                        } else {
+                            t_cmp
+                        }
+                    } else {
+                        cmp
+                    }
+                });
+            }
+        }
             
         // Truncate to limit and construct full paths
         matched_records.into_iter()
@@ -304,10 +378,10 @@ mod tests {
         indexer.scan_directory(root);
 
         // search "weixin" should rank weixin.txt (100) > 微信_wechat.txt (90 or 40)
-        let _results = indexer.search("weixin", 10, false);
+        let _results = indexer.search("weixin", 10, false, 0, false);
         // assert_eq!(results[0], format!("{}/weixin.txt", root.to_string_lossy()));
         
-        let results_pdf = indexer.search("ext:pdf 2000", 10, false);
+        let results_pdf = indexer.search("ext:pdf 2000", 10, false, 0, false);
         assert_eq!(results_pdf.len(), 1, "Failed to find ext:pdf 2000");
     }
 }

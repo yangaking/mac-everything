@@ -21,6 +21,10 @@ struct ContentView: View {
     @FocusState private var isSearchFocused: Bool
     @State private var isNavigatingList: Bool = false
     
+    // Sort State (Default: Modified Time Descending)
+    @State private var sortColumn: UInt8 = 3
+    @State private var sortAscending: Bool = false
+    
     @AppStorage("hasSeenHelp") private var hasSeenHelp = false
     @State private var showHelp = false
     
@@ -194,11 +198,11 @@ struct ContentView: View {
                 
                 // Table Header
                 HStack(spacing: 16) {
-                    Text("名称").frame(minWidth: 280, maxWidth: .infinity, alignment: .leading)
+                    sortableHeader(title: "名称", column: 1, minWidth: 280, maxWidth: .infinity, alignment: .leading)
                     Text("路径").frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
-                    Text("大小").frame(width: 70, alignment: .trailing)
-                    Text("修改时间").frame(width: 100, alignment: .center)
-                    Text("种类").frame(width: 60, alignment: .leading)
+                    sortableHeader(title: "大小", column: 2, minWidth: 70, maxWidth: 70, alignment: .trailing)
+                    sortableHeader(title: "修改时间", column: 3, minWidth: 100, maxWidth: 100, alignment: .center)
+                    sortableHeader(title: "种类", column: 4, minWidth: 60, maxWidth: 60, alignment: .leading)
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.secondary)
@@ -292,6 +296,52 @@ struct ContentView: View {
         }
     }
     
+    // Sortable Header View Builder
+    @ViewBuilder
+    private func sortableHeader(title: String, column: UInt8, minWidth: CGFloat, maxWidth: CGFloat, alignment: Alignment) -> some View {
+        Button(action: {
+            if sortColumn == column {
+                if sortAscending {
+                    // Ascending -> Descending
+                    sortAscending = false
+                } else {
+                    // Descending -> Reset to Default
+                    sortColumn = 3
+                    sortAscending = false
+                }
+            } else {
+                // New column -> Ascending
+                sortColumn = column
+                sortAscending = true
+            }
+            performSearch(query: query)
+        }) {
+            HStack(spacing: 4) {
+                if alignment == .trailing { Spacer() }
+                Text(title)
+                if sortColumn == column {
+                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                } else {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 9, weight: .bold))
+                        .opacity(0) // invisible placeholder
+                }
+                if alignment == .leading { Spacer() }
+            }
+            .frame(minWidth: minWidth, maxWidth: maxWidth, alignment: alignment)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+    
     func performSearch(query: String) {
         if query.isEmpty {
             self.results = []
@@ -310,7 +360,7 @@ struct ContentView: View {
         if !filterExts.isEmpty { finalQuery += " ext:\(filterExts.joined(separator: "|"))" }
         
         finalQuery.withCString { ptr in
-            if let resPtr = search(ptr, 100, settings.enablePathSearch) {
+            if let resPtr = search(ptr, 100, settings.enablePathSearch, sortColumn, sortAscending) {
                 let count = resPtr.pointee.count
                 var paths = [String]()
                 

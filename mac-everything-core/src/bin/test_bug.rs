@@ -8,9 +8,9 @@ fn main() {
     fs::write(format!("{}/2000 Core English Words 4_Word List_ENG.pdf", root), "hello").unwrap();
     indexer.scan_directory(root);
     
-    let res = indexer.search("2000 pdf", 100, false);
-    println!("2000 pdf: {:?}", res);
-    
-    let res2 = indexer.search("2000 ext:pdf", 100, false);
+    let res = indexer.search("2000 pdf", 100, false, 0, false);
+    println!("res: {:?}", res);
+
+    let res2 = indexer.search("2000 ext:pdf", 100, false, 0, false);
     println!("2000 ext:pdf: {:?}", res2);
 }

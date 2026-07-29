@@ -32,7 +32,7 @@ pub extern "C" fn init_engine(root_path_ptr: *const c_char) {
 }
 
 #[no_mangle]
-pub extern "C" fn search(query_ptr: *const c_char, limit: usize, enable_path_search: bool) -> *mut CSearchResult {
+pub extern "C" fn search(query_ptr: *const c_char, limit: usize, enable_path_search: bool, sort_col: u8, sort_asc: bool) -> *mut CSearchResult {
     if query_ptr.is_null() {
         return std::ptr::null_mut();
     }
@@ -44,7 +44,7 @@ pub extern "C" fn search(query_ptr: *const c_char, limit: usize, enable_path_sea
     };
 
     if let Some(indexer) = INDEXER.get() {
-        let results = indexer.search(query, limit, enable_path_search);
+        let results = indexer.search(query, limit, enable_path_search, sort_col, sort_asc);
         
         // Convert to C strings
         let mut c_strings: Vec<*mut c_char> = results
