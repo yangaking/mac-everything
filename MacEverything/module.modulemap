@@ -1,0 +1,4 @@
+module MacEverythingCore {
+    header "../mac_everything.h"
+    export *
+}

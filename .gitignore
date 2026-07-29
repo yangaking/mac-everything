@@ -1,0 +1,6 @@
+/build/
+/mac-everything-core/target/
+.DS_Store
+*.icns
+AppIcon.iconset/
+maceverything_icon_*.jpg
