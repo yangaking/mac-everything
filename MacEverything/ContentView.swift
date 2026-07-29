@@ -176,8 +176,8 @@ struct ContentView: View {
                 
                 // Table Header
                 HStack(spacing: 16) {
-                    Text("名称").frame(width: 280, alignment: .leading)
-                    Text("路径").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("名称").frame(minWidth: 280, maxWidth: .infinity, alignment: .leading)
+                    Text("路径").frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
                     Text("大小").frame(width: 70, alignment: .trailing)
                     Text("修改时间").frame(width: 100, alignment: .center)
                     Text("种类").frame(width: 60, alignment: .leading)
@@ -483,7 +483,8 @@ struct ResultRowView: View {
                         .padding(.trailing, 4)
                 }
             }
-            .frame(width: 280, alignment: .leading)
+            .frame(minWidth: 280, maxWidth: .infinity, alignment: .leading)
+            .help(item.name)
             
             // Path Column
             Text(item.dirPath)
@@ -491,7 +492,8 @@ struct ResultRowView: View {
                 .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
+                .help(item.dirPath)
             
             // Size Column
             Text(item.sizeStr)
