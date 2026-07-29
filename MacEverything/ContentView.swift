@@ -37,7 +37,7 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
-            VisualEffectView(material: .popover, blendingMode: .behindWindow)
+            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
                 .edgesIgnoringSafeArea(.all)
             
             VStack(spacing: 0) {
@@ -131,7 +131,7 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(Color.black.opacity(0.3))
+                .background(Color.black.opacity(0.15))
                 .cornerRadius(12)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
@@ -248,7 +248,7 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
-                .background(Color.black.opacity(0.2))
+                .background(Color.black.opacity(0.15))
             }
         }
         .frame(minWidth: 800, minHeight: 500)
