@@ -653,6 +653,10 @@ struct AdvancedFilterView: View {
     @Binding var filterExts: Set<String>
     var onFilterChanged: () -> Void
     
+    @State private var customSizeOp: String = ">"
+    @State private var customSizeVal: String = ""
+    @State private var customExt: String = ""
+    
     let kinds = [
         ("图片", "image"), ("视频", "video"), ("音频", "audio"), ("文档", "doc"), ("压缩包", "archive")
     ]
@@ -660,7 +664,7 @@ struct AdvancedFilterView: View {
         ("今天", "today"), ("昨天", "yesterday"), ("本周", "thisweek"), ("本月", "thismonth")
     ]
     let sizes = [
-        ("> 10MB", ">10mb"), ("> 100MB", ">100mb"), ("> 1GB", ">1gb"), ("< 10MB", "<10mb")
+        ("> 10MB", ">10mb"), ("> 100MB", ">100mb"), ("> 1GB", ">1gb")
     ]
     let exts = [
         "pdf", "docx", "xlsx", "mp4", "mp3", "zip", "jpg", "png", "txt"
@@ -670,34 +674,10 @@ struct AdvancedFilterView: View {
         VStack(alignment: .leading, spacing: 12) {
             FilterRowMulti(title: "类别", options: kinds, selectedValues: $filterKinds, onChanged: onFilterChanged)
             FilterRow(title: "时间", options: dates, selectedValue: $filterDate, onChanged: onFilterChanged)
-            FilterRow(title: "大小", options: sizes, selectedValue: $filterSize, onChanged: onFilterChanged)
             
-            HStack(spacing: 8) {
-                Text("后缀")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(.secondary)
-                    .frame(width: 40, alignment: .leading)
-                
-                ForEach(exts, id: \.self) { ext in
-                    Button(action: {
-                        if filterExts.contains(ext) {
-                            filterExts.remove(ext)
-                        } else {
-                            filterExts.insert(ext)
-                        }
-                        onFilterChanged()
-                    }) {
-                        Text(ext)
-                            .font(.system(size: 12))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(filterExts.contains(ext) ? Color.accentColor.opacity(0.8) : Color.white.opacity(0.1))
-                            .cornerRadius(12)
-                            .foregroundColor(filterExts.contains(ext) ? .white : .primary)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
+            SizeFilterRow(filterSize: $filterSize, customSizeOp: $customSizeOp, customSizeVal: $customSizeVal, sizes: sizes, onFilterChanged: onFilterChanged)
+            
+            ExtFilterRow(filterExts: $filterExts, customExt: $customExt, exts: exts, onFilterChanged: onFilterChanged)
         }
         .padding(16)
         .background(Color.black.opacity(0.4))
@@ -706,6 +686,25 @@ struct AdvancedFilterView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.white.opacity(0.1), lineWidth: 1)
         )
+    }
+    
+    private func applyCustomSize() {
+        let val = customSizeVal.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !val.isEmpty {
+            // Ensure there's a unit, if not append mb
+            let finalVal = (val.hasSuffix("kb") || val.hasSuffix("mb") || val.hasSuffix("gb")) ? val : "\(val)mb"
+            filterSize = "\(customSizeOp)\(finalVal)"
+            onFilterChanged()
+        }
+    }
+    
+    private func applyCustomExt() {
+        let val = customExt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !val.isEmpty {
+            filterExts.insert(val)
+            customExt = ""
+            onFilterChanged()
+        }
     }
 }
 
@@ -800,5 +799,143 @@ struct ActiveTagView: View {
         .background(Color.accentColor.opacity(0.6))
         .cornerRadius(16)
         .foregroundColor(.white)
+    }
+}
+
+struct SizeFilterRow: View {
+    @Binding var filterSize: String?
+    @Binding var customSizeOp: String
+    @Binding var customSizeVal: String
+    let sizes: [(label: String, value: String)]
+    var onFilterChanged: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("大小")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(width: 40, alignment: .leading)
+            
+            ForEach(sizes, id: \.value) { option in
+                Button(action: {
+                    if filterSize == option.value {
+                        filterSize = nil
+                    } else {
+                        filterSize = option.value
+                        customSizeVal = ""
+                    }
+                    onFilterChanged()
+                }) {
+                    Text(option.label)
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(filterSize == option.value ? Color.accentColor.opacity(0.8) : Color.white.opacity(0.1))
+                        .cornerRadius(12)
+                        .foregroundColor(filterSize == option.value ? .white : .primary)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            // Custom Size Input
+            Picker("", selection: $customSizeOp) {
+                Text(">").tag(">")
+                Text("<").tag("<")
+            }
+            .pickerStyle(MenuPickerStyle())
+            .frame(width: 45)
+            .labelsHidden()
+            
+            TextField("如 500kb", text: $customSizeVal)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .frame(width: 70)
+                .font(.system(size: 12))
+                .onSubmit { applyCustomSize() }
+            
+            if !customSizeVal.isEmpty {
+                Button(action: applyCustomSize) {
+                    Image(systemName: "return")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(4)
+                        .background(Color.accentColor)
+                        .cornerRadius(4)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+    }
+    
+    private func applyCustomSize() {
+        let val = customSizeVal.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !val.isEmpty {
+            let finalVal = (val.hasSuffix("kb") || val.hasSuffix("mb") || val.hasSuffix("gb")) ? val : "\(val)mb"
+            filterSize = "\(customSizeOp)\(finalVal)"
+            onFilterChanged()
+        }
+    }
+}
+
+struct ExtFilterRow: View {
+    @Binding var filterExts: Set<String>
+    @Binding var customExt: String
+    let exts: [String]
+    var onFilterChanged: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("后缀")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(width: 40, alignment: .leading)
+            
+            ForEach(exts, id: \.self) { ext in
+                Button(action: {
+                    if filterExts.contains(ext) {
+                        filterExts.remove(ext)
+                    } else {
+                        filterExts.insert(ext)
+                    }
+                    onFilterChanged()
+                }) {
+                    Text(ext)
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(filterExts.contains(ext) ? Color.accentColor.opacity(0.8) : Color.white.opacity(0.1))
+                        .cornerRadius(12)
+                        .foregroundColor(filterExts.contains(ext) ? .white : .primary)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            // Custom Ext Input
+            TextField("如 apk", text: $customExt)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .frame(width: 60)
+                .font(.system(size: 12))
+                .onSubmit { applyCustomExt() }
+            
+            if !customExt.isEmpty {
+                Button(action: applyCustomExt) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(4)
+                        .background(Color.accentColor)
+                        .cornerRadius(4)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+    }
+    
+    private func applyCustomExt() {
+        let val = customExt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !val.isEmpty {
+            filterExts.insert(val)
+            customExt = ""
+            onFilterChanged()
+        }
     }
 }
