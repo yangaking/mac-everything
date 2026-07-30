@@ -25,6 +25,10 @@ class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(hotkeyString, forKey: "hotkeyString") }
     }
     
+    @Published var githubToken: String {
+        didSet { UserDefaults.standard.set(githubToken, forKey: "githubToken") }
+    }
+    
     // Regex Hotkey
     @Published var regexHotkeyCode: UInt32 {
         didSet { UserDefaults.standard.set(Int(regexHotkeyCode), forKey: "regexHotkeyCode") }
@@ -54,6 +58,7 @@ class AppSettings: ObservableObject {
     init() {
         self.enableRegexDefault = UserDefaults.standard.bool(forKey: "enableRegexDefault")
         self.enablePathSearch = UserDefaults.standard.bool(forKey: "enablePathSearch")
+        self.githubToken = UserDefaults.standard.string(forKey: "githubToken") ?? ""
         
         let savedCode = UserDefaults.standard.integer(forKey: "hotkeyCode")
         let savedMods = UserDefaults.standard.integer(forKey: "hotkeyModifiers")
@@ -122,10 +127,22 @@ struct SettingsView: View {
             hotkeyRow(title: "Local Toggle Regex:", id: 2, keyString: settings.regexHotkeyString)
             hotkeyRow(title: "Local Toggle Path:", id: 3, keyString: settings.pathHotkeyString)
             
+            Divider()
+            
+            Text("Advanced")
+                .font(.headline)
+            
+            HStack {
+                Text("GitHub Token:")
+                    .frame(width: 100, alignment: .leading)
+                SecureField("For private repo auto-updates", text: $settings.githubToken)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+            }
+            
             Spacer()
         }
         .padding()
-        .frame(width: 450, height: 350)
+        .frame(width: 450, height: 420)
         .onDisappear {
             stopRecording()
         }
