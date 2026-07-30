@@ -13,11 +13,6 @@ class UpdateManager {
         var request = URLRequest(url: url)
         request.setValue("MacEverything-App", forHTTPHeaderField: "User-Agent")
         
-        let token = AppSettings.shared.githubToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 if manual {
