@@ -41,7 +41,7 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
-            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+            VisualEffectView(material: .popover, blendingMode: .behindWindow)
                 .edgesIgnoringSafeArea(.all)
             
             VStack(spacing: 0) {

@@ -111,6 +111,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         searchWindow.backgroundColor = .clear // Transparent background for glassmorphism
         searchWindow.hasShadow = true
         searchWindow.isOpaque = false
+        searchWindow.appearance = NSAppearance(named: .darkAqua) // Force dark mode
         searchWindow.contentView = NSHostingView(rootView: contentView)
         searchWindow.isReleasedWhenClosed = false
     }
