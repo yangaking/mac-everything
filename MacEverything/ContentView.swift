@@ -413,7 +413,11 @@ struct ContentView: View {
                     dateStr = dateFormatter.string(from: date)
                 }
                 if let type = attrs[.type] as? FileAttributeType, type == .typeDirectory {
-                    typeStr = "DIR"
+                    if url.pathExtension.lowercased() == "app" {
+                        typeStr = "APP"
+                    } else {
+                        typeStr = "DIR"
+                    }
                     sizeStr = "--"
                 } else {
                     let ext = url.pathExtension.uppercased()
@@ -734,7 +738,7 @@ struct AdvancedFilterView: View {
     @State private var customExt: String = ""
     
     let kinds = [
-        ("图片", "image"), ("视频", "video"), ("音频", "audio"), ("文档", "doc"), ("压缩包", "archive")
+        ("应用", "app"), ("图片", "image"), ("视频", "video"), ("音频", "audio"), ("文档", "doc"), ("压缩包", "archive")
     ]
     let dates = [
         ("今天", "today"), ("昨天", "yesterday"), ("本周", "thisweek"), ("本月", "thismonth")

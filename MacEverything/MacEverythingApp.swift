@@ -54,10 +54,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize the Rust engine in the background to prevent UI freezing
         NotificationCenter.default.post(name: NSNotification.Name("IndexingStarted"), object: nil)
         DispatchQueue.global(qos: .userInitiated).async {
-            let homeDir = NSHomeDirectory()
-            homeDir.withCString { ptr in
-                init_engine(ptr)
+            let paths = [NSHomeDirectory(), "/Applications", "/System/Applications"]
+            var cStringsArr: [UnsafePointer<CChar>?] = []
+            let allocators = paths.map { strdup($0) }
+            for ptr in allocators {
+                cStringsArr.append(UnsafePointer(ptr))
             }
+            
+            init_engine(&cStringsArr, cStringsArr.count)
+            
+            for ptr in allocators {
+                free(ptr)
+            }
+            
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: NSNotification.Name("IndexingFinished"), object: nil)
             }

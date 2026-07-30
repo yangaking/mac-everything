@@ -30,45 +30,59 @@ impl Indexer {
         }
     }
 
-    /// Performs a high-speed initial scan of the given root directory.
-    pub fn scan_directory<P: AsRef<Path>>(&self, root: P) {
+    /// Performs a high-speed initial scan of the given root directories.
+    pub fn scan_directories<P: AsRef<Path>>(&self, roots: &[P]) {
         let mut records = Vec::new();
         let mut dir_paths = Vec::new();
         let mut dir_map: HashMap<String, u32> = HashMap::new();
         
-        let walker = WalkDir::new(root).follow_links(true).into_iter().filter_entry(|e| {
-            let file_name = e.file_name().to_string_lossy();
-            if e.depth() > 0 && file_name.starts_with('.') {
-                return false;
-            }
-            if e.depth() == 1 && file_name == "Library" {
-                return true;
-            }
-            if e.depth() == 2 {
-                if let Some(parent) = e.path().parent() {
-                    if let Some(parent_name) = parent.file_name() {
-                        if parent_name.to_string_lossy() == "Library" && file_name != "CloudStorage" {
-                            return false;
+        for root in roots {
+            let mut it = WalkDir::new(root).follow_links(true).into_iter();
+            loop {
+                let entry = match it.next() {
+                    None => break,
+                    Some(Err(_)) => continue,
+                    Some(Ok(entry)) => entry,
+                };
+                
+                let path = entry.path();
+                let file_name = entry.file_name().to_string_lossy();
+                let depth = entry.depth();
+                let is_dir = entry.file_type().is_dir();
+                
+                // Skip hidden files/directories
+                if depth > 0 && file_name.starts_with('.') {
+                    if is_dir { it.skip_current_dir(); }
+                    continue;
+                }
+                
+                // Skip Library internals (except CloudStorage)
+                if depth == 2 {
+                    if let Some(parent) = path.parent() {
+                        if let Some(parent_name) = parent.file_name() {
+                            if parent_name.to_string_lossy() == "Library" && file_name != "CloudStorage" {
+                                if is_dir { it.skip_current_dir(); }
+                                continue;
+                            }
                         }
                     }
                 }
-            }
-            true
-        });
+                
+                // Treat .app bundles as files and do NOT descend into them
+                if is_dir && file_name.ends_with(".app") {
+                    it.skip_current_dir();
+                }
+                
+                let parent = path.parent().unwrap_or(Path::new(""));
+                let parent_str = parent.to_string_lossy().to_string();
+                
+                let parent_id = *dir_map.entry(parent_str.clone()).or_insert_with(|| {
+                    let id = dir_paths.len() as u32;
+                    dir_paths.push(parent_str);
+                    id
+                });
 
-        for entry in walker.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            let parent = path.parent().unwrap_or(Path::new(""));
-            let parent_str = parent.to_string_lossy().to_string();
-            
-            let parent_id = *dir_map.entry(parent_str.clone()).or_insert_with(|| {
-                let id = dir_paths.len() as u32;
-                dir_paths.push(parent_str);
-                id
-            });
-
-            if let Some(name) = path.file_name() {
-                let name_str = name.to_string_lossy().to_string();
+                let name_str = file_name.into_owned();
                 let name_lower = name_str.to_lowercase();
                 
                 // Metadata extraction
@@ -108,7 +122,7 @@ impl Indexer {
                 records.push(FileRecord {
                     name: name_str,
                     name_lower,
-                    is_dir: entry.file_type().is_dir(),
+                    is_dir,
                     parent_id,
                     pinyin: pinyin_opt,
                     size,
@@ -212,6 +226,7 @@ impl Indexer {
                         "audio" => matches!(ext, "mp3" | "wav" | "flac" | "aac" | "ogg" | "m4a"),
                         "doc" | "document" => matches!(ext, "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "md" | "pages" | "numbers" | "key"),
                         "archive" => matches!(ext, "zip" | "rar" | "7z" | "tar" | "gz" | "bz2"),
+                        "app" | "application" => matches!(ext, "app"),
                         _ => false,
                     };
                     if is_match { return Some(10); }
@@ -259,11 +274,12 @@ impl Indexer {
         let query_ast = crate::query_parser::QueryParser::parse(query_string);
         
         // Multi-threaded parallel iterator via Rayon
-        let mut matched_records: Vec<(i32, &FileRecord)> = records
+        let mut matched_records: Vec<(i32, &FileRecord, bool)> = records
             .par_iter()
             .filter_map(|r| {
                 if let Some(score) = Self::evaluate_node_scored(&query_ast, r, &dir_paths, enable_path_search) {
-                    Some((score, r))
+                    let is_app = r.name_lower.ends_with(".app");
+                    Some((score, r, is_app))
                 } else {
                     None
                 }
@@ -275,6 +291,8 @@ impl Indexer {
             1 => {
                 // Name
                 matched_records.sort_unstable_by(|a, b| {
+                    let app_cmp = b.2.cmp(&a.2); // Pin apps to top
+                    if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
                     if sort_asc {
                         a.1.name_lower.cmp(&b.1.name_lower)
                     } else {
@@ -285,6 +303,8 @@ impl Indexer {
             2 => {
                 // Size
                 matched_records.sort_unstable_by(|a, b| {
+                    let app_cmp = b.2.cmp(&a.2);
+                    if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
                     let cmp = if sort_asc {
                         a.1.size.cmp(&b.1.size)
                     } else {
@@ -300,6 +320,8 @@ impl Indexer {
             3 => {
                 // ModifiedTime
                 matched_records.sort_unstable_by(|a, b| {
+                    let app_cmp = b.2.cmp(&a.2);
+                    if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
                     let cmp = if sort_asc {
                         a.1.modified_time.cmp(&b.1.modified_time)
                     } else {
@@ -315,6 +337,8 @@ impl Indexer {
             4 => {
                 // Kind (Extension)
                 matched_records.sort_unstable_by(|a, b| {
+                    let app_cmp = b.2.cmp(&a.2);
+                    if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
                     let ext_a = a.1.name_lower.split('.').last().unwrap_or("");
                     let ext_b = b.1.name_lower.split('.').last().unwrap_or("");
                     let cmp = if sort_asc {
@@ -332,6 +356,8 @@ impl Indexer {
             _ => {
                 // Default: Score desc, then ModifiedTime desc, then Name asc
                 matched_records.sort_unstable_by(|a, b| {
+                    let app_cmp = b.2.cmp(&a.2);
+                    if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
                     let cmp = b.0.cmp(&a.0);
                     if cmp == std::cmp::Ordering::Equal {
                         let t_cmp = b.1.modified_time.cmp(&a.1.modified_time);
@@ -350,7 +376,7 @@ impl Indexer {
         // Truncate to limit and construct full paths
         matched_records.into_iter()
             .take(limit)
-            .map(|(_, r)| {
+            .map(|(_, r, _)| {
                 let parent_path = &dir_paths[r.parent_id as usize];
                 format!("{}/{}", parent_path, r.name)
             })
@@ -375,7 +401,7 @@ mod tests {
         fs::write(root.join("2000 Core English Words 4_Word List_ENG.pdf"), "hello").unwrap();
 
         let indexer = Indexer::new();
-        indexer.scan_directory(root);
+        indexer.scan_directories(&[root]);
 
         // search "weixin" should rank weixin.txt (100) > 微信_wechat.txt (90 or 40)
         let _results = indexer.search("weixin", 10, false, 0, false);

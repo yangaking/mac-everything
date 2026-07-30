@@ -13,16 +13,26 @@ pub struct CSearchResult {
 }
 
 #[no_mangle]
-pub extern "C" fn init_engine(root_path_ptr: *const c_char) {
-    if root_path_ptr.is_null() {
+pub extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count: usize) {
+    if root_paths_ptr.is_null() || count == 0 {
         return;
     }
 
-    let c_str = unsafe { CStr::from_ptr(root_path_ptr) };
-    if let Ok(root_path) = c_str.to_str() {
+    let mut roots = Vec::new();
+    let ptrs = unsafe { std::slice::from_raw_parts(root_paths_ptr, count) };
+    for &ptr in ptrs {
+        if !ptr.is_null() {
+            let c_str = unsafe { CStr::from_ptr(ptr) };
+            if let Ok(s) = c_str.to_str() {
+                roots.push(s.to_string());
+            }
+        }
+    }
+
+    if !roots.is_empty() {
         let indexer = Indexer::new();
         // Perform initial scan
-        indexer.scan_directory(root_path);
+        indexer.scan_directories(&roots);
         
         // TODO: Start FSEventMonitor here in background
         

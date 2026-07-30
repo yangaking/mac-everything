@@ -6,7 +6,7 @@ fn main() {
     let root = "/tmp/test_bug";
     let _ = fs::create_dir_all(root);
     fs::write(format!("{}/2000 Core English Words 4_Word List_ENG.pdf", root), "hello").unwrap();
-    indexer.scan_directory(root);
+    indexer.scan_directories(&[root]);
     
     let res = indexer.search("2000 pdf", 100, false, 0, false);
     println!("res: {:?}", res);
