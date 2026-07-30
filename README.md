@@ -64,4 +64,4 @@ MacEverything 是一款专注于 macOS 平台的高性能本地文件搜索工�
 
 ## 📜 许可证 (License)
 
-本项目采用 MIT License。
+本项目采用 Apache-2.0 License。
