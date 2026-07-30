@@ -10,6 +10,7 @@ struct VisualEffectView: NSViewRepresentable {
         visualEffectView.material = material
         visualEffectView.blendingMode = blendingMode
         visualEffectView.state = .active
+        visualEffectView.appearance = NSAppearance(named: .vibrantDark)
         return visualEffectView
     }
 

@@ -271,6 +271,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 800, minHeight: 500)
+        .preferredColorScheme(.dark)
         .onAppear {
             isSearchFocused = true
             setupKeyboardMonitor()
