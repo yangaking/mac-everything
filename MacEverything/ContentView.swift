@@ -44,6 +44,9 @@ struct ContentView: View {
             VisualEffectView(material: .popover, blendingMode: .behindWindow)
                 .edgesIgnoringSafeArea(.all)
             
+            Color.black.opacity(0.4)
+                .edgesIgnoringSafeArea(.all)
+            
             VStack(spacing: 0) {
                 // Header (Title bar area)
                 HStack {
