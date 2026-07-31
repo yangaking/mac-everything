@@ -218,12 +218,21 @@ impl Indexer {
         }
 
         if !removes_map.is_empty() {
-            records.retain(|r| {
-                if let Some(names) = removes_map.get(&r.parent_id) {
-                    !names.contains(&r.name)
-                } else {
-                    true
+            let max_id = dir_paths.len();
+            let mut has_removes = vec![false; max_id];
+            for &pid in removes_map.keys() {
+                if (pid as usize) < max_id {
+                    has_removes[pid as usize] = true;
                 }
+            }
+            
+            records.retain(|r| {
+                if (r.parent_id as usize) < max_id && has_removes[r.parent_id as usize] {
+                    if let Some(names) = removes_map.get(&r.parent_id) {
+                        return !names.contains(&r.name);
+                    }
+                }
+                true
             });
         }
 
