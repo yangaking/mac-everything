@@ -53,7 +53,7 @@ impl Indexer {
         let mut dir_map: HashMap<String, u32> = HashMap::new();
         
         for root in roots {
-            let mut it = WalkDir::new(root).follow_links(true).into_iter();
+            let mut it = WalkDir::new(root).follow_links(false).into_iter();
             loop {
                 let entry = match it.next() {
                     None => break,
@@ -72,15 +72,19 @@ impl Indexer {
                     continue;
                 }
                 
-                // Skip Library internals (except CloudStorage)
-                if depth == 2 {
-                    if let Some(parent) = path.parent() {
-                        if let Some(parent_name) = parent.file_name() {
-                            if parent_name.to_string_lossy() == "Library" && file_name != "CloudStorage" {
-                                if is_dir { it.skip_current_dir(); }
-                                continue;
-                            }
-                        }
+                let p_str = path.to_string_lossy();
+                
+                // Robust filtering for redundant Cloud Storage virtual maps and internal Library caches
+                if p_str.contains("/Library/") {
+                    // Only allow CloudStorage within Library to prevent huge cache indexing
+                    if !p_str.contains("/Library/CloudStorage") {
+                        if is_dir { it.skip_current_dir(); }
+                        continue;
+                    }
+                    // Prevent any leakage into Group Containers
+                    if p_str.contains("/Group Containers/") {
+                        if is_dir { it.skip_current_dir(); }
+                        continue;
                     }
                 }
                 
