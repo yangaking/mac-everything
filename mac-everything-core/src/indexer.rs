@@ -1,9 +1,15 @@
-use std::path::{Path};
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
-use std::sync::RwLock;
-use std::collections::HashMap;
+use std::sync::{RwLock, Mutex};
+use std::collections::{HashMap, HashSet};
 use rayon::prelude::*;
 use pinyin::ToPinyin;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum HotEvent {
+    Add(PathBuf),
+    Remove(PathBuf),
+}
 
 /// Highly compact memory representation of a file
 #[derive(Clone)]
@@ -20,6 +26,7 @@ pub struct FileRecord {
 pub struct Indexer {
     pub records: RwLock<Vec<FileRecord>>,
     pub dir_paths: RwLock<Vec<String>>,
+    pub pending_events: Mutex<Vec<HotEvent>>,
 }
 
 impl Indexer {
@@ -27,6 +34,13 @@ impl Indexer {
         Self {
             records: RwLock::new(Vec::new()),
             dir_paths: RwLock::new(Vec::new()),
+            pending_events: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn enqueue_event(&self, event: HotEvent) {
+        if let Ok(mut queue) = self.pending_events.lock() {
+            queue.push(event);
         }
     }
 
@@ -133,6 +147,136 @@ impl Indexer {
         
         *self.records.write().unwrap() = records;
         *self.dir_paths.write().unwrap() = dir_paths;
+    }
+
+    pub fn apply_updates(&self) {
+        let queue = match self.pending_events.lock() {
+            Ok(mut q) => {
+                if q.is_empty() { return; }
+                std::mem::take(&mut *q)
+            },
+            Err(_) => return,
+        };
+
+        // Deduplicate events (process the latest event for each path)
+        let mut latest_events: HashMap<PathBuf, HotEvent> = HashMap::new();
+        for ev in queue {
+            match &ev {
+                HotEvent::Add(p) | HotEvent::Remove(p) => {
+                    latest_events.insert(p.clone(), ev);
+                }
+            }
+        }
+
+        let mut removes = HashSet::new();
+        let mut adds = Vec::new();
+        
+        for (path, ev) in latest_events {
+            match ev {
+                HotEvent::Remove(_) => {
+                    removes.insert(path.to_string_lossy().to_string());
+                },
+                HotEvent::Add(_) => {
+                    removes.insert(path.to_string_lossy().to_string());
+                    adds.push(path);
+                }
+            }
+        }
+
+        if removes.is_empty() && adds.is_empty() {
+            return;
+        }
+
+        let mut new_records = Vec::new();
+        let mut dir_map: HashMap<String, u32> = HashMap::new();
+        
+        // Acquire write lock to update
+        let mut records = self.records.write().unwrap();
+        let mut dir_paths = self.dir_paths.write().unwrap();
+
+        // Populate dir_map with existing dir_paths
+        for (i, p) in dir_paths.iter().enumerate() {
+            dir_map.insert(p.clone(), i as u32);
+        }
+
+        // Parse new additions
+        for path in adds {
+            if let Some(record) = Self::parse_single_path(&path, &mut dir_paths, &mut dir_map) {
+                new_records.push(record);
+            }
+        }
+
+        // Rebuild records, filtering out removes
+        records.retain(|r| {
+            if (r.parent_id as usize) < dir_paths.len() {
+                let full_path = format!("{}/{}", dir_paths[r.parent_id as usize], r.name);
+                !removes.contains(&full_path)
+            } else {
+                false
+            }
+        });
+
+        // Append new
+        records.extend(new_records);
+    }
+
+    fn parse_single_path(path: &Path, dir_paths: &mut Vec<String>, dir_map: &mut HashMap<String, u32>) -> Option<FileRecord> {
+        let file_name = path.file_name()?.to_string_lossy();
+        if file_name.starts_with('.') { return None; }
+        
+        let metadata = std::fs::symlink_metadata(path).ok()?;
+        let is_dir = metadata.is_dir();
+
+        let parent = path.parent().unwrap_or(Path::new(""));
+        let parent_str = parent.to_string_lossy().to_string();
+        
+        let parent_id = *dir_map.entry(parent_str.clone()).or_insert_with(|| {
+            let id = dir_paths.len() as u32;
+            dir_paths.push(parent_str);
+            id
+        });
+
+        let name_str = file_name.into_owned();
+        let name_lower = name_str.to_lowercase();
+        
+        let size = metadata.len();
+        let mut modified_time = 0;
+        if let Ok(sys_time) = metadata.modified() {
+            if let Ok(duration) = sys_time.duration_since(std::time::UNIX_EPOCH) {
+                modified_time = duration.as_secs();
+            }
+        }
+        
+        let mut pinyin_opt = None;
+        if name_str.chars().any(|c| !c.is_ascii()) {
+            let mut full_py = String::new();
+            let mut initial_py = String::new();
+            for c in name_str.chars() {
+                if let Some(py) = c.to_pinyin() {
+                    let py_str = py.plain();
+                    full_py.push_str(py_str);
+                    if let Some(ch) = py_str.chars().next() {
+                        initial_py.push(ch);
+                    }
+                } else {
+                    full_py.push(c.to_ascii_lowercase());
+                    initial_py.push(c.to_ascii_lowercase());
+                }
+            }
+            if !full_py.is_empty() {
+                pinyin_opt = Some(format!("{}\0{}", full_py, initial_py));
+            }
+        }
+
+        Some(FileRecord {
+            name: name_str,
+            name_lower,
+            is_dir,
+            parent_id,
+            pinyin: pinyin_opt,
+            size,
+            modified_time,
+        })
     }
 
     /// Evaluates a query node against a file record and returns a matching score
@@ -409,5 +553,36 @@ mod tests {
         
         let results_pdf = indexer.search("ext:pdf 2000", 10, false, 0, false);
         assert_eq!(results_pdf.len(), 1, "Failed to find ext:pdf 2000");
+    }
+
+    #[test]
+    fn test_hot_updates() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        
+        fs::write(root.join("old_file.txt"), "hello").unwrap();
+        
+        let indexer = Indexer::new();
+        indexer.scan_directories(&[root]);
+        
+        // Ensure old_file.txt is found
+        let res = indexer.search("old_file", 10, false, 0, false);
+        assert_eq!(res.len(), 1);
+        
+        // Delete old_file.txt, create new_file.txt
+        fs::remove_file(root.join("old_file.txt")).unwrap();
+        fs::write(root.join("new_file.txt"), "hello").unwrap();
+        
+        // Enqueue events
+        indexer.enqueue_event(HotEvent::Add(root.join("old_file.txt"))); // Deletion handling
+        indexer.enqueue_event(HotEvent::Add(root.join("new_file.txt"))); // Addition handling
+        
+        indexer.apply_updates();
+        
+        let res_old = indexer.search("old_file", 10, false, 0, false);
+        assert_eq!(res_old.len(), 0, "old_file should be removed");
+        
+        let res_new = indexer.search("new_file", 10, false, 0, false);
+        assert_eq!(res_new.len(), 1, "new_file should be added");
     }
 }

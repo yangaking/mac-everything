@@ -76,7 +76,7 @@ struct ContentView: View {
                             .focused($isSearchFocused)
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 18, weight: .regular))
-                            .onChange(of: query) { newValue in
+                            .onChange(of: query) { _, newValue in
                                 isNavigatingList = false // Reset navigation state when typing
                                 performSearch(query: newValue)
                             }
@@ -231,20 +231,24 @@ struct ContentView: View {
                                 .onHover { hovering in
                                     hoverIndex = hovering ? index : nil
                                 }
-                                .onTapGesture {
-                                    selectedIndex = index
+                                .onTapGesture(count: 2) {
                                     openFile(at: item.path)
+                                }
+                                .onTapGesture(count: 1) {
+                                    selectedIndex = index
+                                    isSearchFocused = true
+                                    isNavigatingList = true
                                 }
                             }
                         }
                         .padding(.vertical, 8)
                         .padding(.horizontal, 12)
                     }
-                    .onChange(of: selectedIndex, perform: { idx in
+                    .onChange(of: selectedIndex) { _, idx in
                         withAnimation {
                             proxy.scrollTo(idx, anchor: .center)
                         }
-                    })
+                    }
                 }
                 
                 Divider()
@@ -436,6 +440,19 @@ struct ContentView: View {
     // MARK: - Keyboard Actions
     
     private func setupKeyboardMonitor() {
+        NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            if let window = event.window {
+                let location = event.locationInWindow
+                let distanceFromTop = window.frame.height - location.y
+                if distanceFromTop < 120 {
+                    DispatchQueue.main.async {
+                        self.isNavigatingList = false
+                    }
+                }
+            }
+            return event
+        }
+        
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let keyCode = event.keyCode
             
@@ -462,6 +479,7 @@ struct ContentView: View {
                 if selectedIndex < results.count - 1 {
                     selectedIndex += 1
                     isNavigatingList = true
+                    DispatchQueue.main.async { isSearchFocused = true }
                 }
                 return nil
             }
@@ -470,6 +488,7 @@ struct ContentView: View {
                 if selectedIndex > 0 {
                     selectedIndex -= 1
                     isNavigatingList = true
+                    DispatchQueue.main.async { isSearchFocused = true }
                 }
                 return nil
             }

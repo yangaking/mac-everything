@@ -34,10 +34,33 @@ pub extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count: usize
         // Perform initial scan
         indexer.scan_directories(&roots);
         
-        // TODO: Start FSEventMonitor here in background
-        
         // Ignore initialization error if it was already initialized
-        let _ = INDEXER.set(indexer);
+        if INDEXER.set(indexer).is_ok() {
+            // Start FSEventMonitor here in background
+            let mut monitor = crate::fsevents::FsEventMonitor::new();
+            let monitor_roots = roots.clone();
+            std::thread::spawn(move || {
+                monitor.start_watching(monitor_roots);
+                // Keep the monitor alive on this thread
+                loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+            });
+
+            // Start the debouncer background thread
+            std::thread::spawn(|| {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    if let Some(idx) = INDEXER.get() {
+                        idx.apply_updates();
+                    }
+                }
+            });
+        }
+    }
+}
+
+pub fn enqueue_fsevent(event: crate::indexer::HotEvent) {
+    if let Some(indexer) = INDEXER.get() {
+        indexer.enqueue_event(event);
     }
 }
 
