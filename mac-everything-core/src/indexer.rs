@@ -26,6 +26,7 @@ pub struct FileRecord {
 pub struct Indexer {
     pub records: RwLock<Vec<FileRecord>>,
     pub dir_paths: RwLock<Vec<String>>,
+    pub dir_map: RwLock<HashMap<String, u32>>,
     pub pending_events: Mutex<Vec<HotEvent>>,
 }
 
@@ -34,6 +35,7 @@ impl Indexer {
         Self {
             records: RwLock::new(Vec::new()),
             dir_paths: RwLock::new(Vec::new()),
+            dir_map: RwLock::new(HashMap::new()),
             pending_events: Mutex::new(Vec::new()),
         }
     }
@@ -147,6 +149,7 @@ impl Indexer {
         
         *self.records.write().unwrap() = records;
         *self.dir_paths.write().unwrap() = dir_paths;
+        *self.dir_map.write().unwrap() = dir_map;
     }
 
     pub fn apply_updates(&self) {
@@ -168,16 +171,16 @@ impl Indexer {
             }
         }
 
-        let mut removes = HashSet::new();
+        let mut removes = Vec::new();
         let mut adds = Vec::new();
         
         for (path, ev) in latest_events {
             match ev {
                 HotEvent::Remove(_) => {
-                    removes.insert(path.to_string_lossy().to_string());
+                    removes.push(path);
                 },
                 HotEvent::Add(_) => {
-                    removes.insert(path.to_string_lossy().to_string());
+                    removes.push(path.clone());
                     adds.push(path);
                 }
             }
@@ -188,16 +191,11 @@ impl Indexer {
         }
 
         let mut new_records = Vec::new();
-        let mut dir_map: HashMap<String, u32> = HashMap::new();
         
         // Acquire write lock to update
         let mut records = self.records.write().unwrap();
         let mut dir_paths = self.dir_paths.write().unwrap();
-
-        // Populate dir_map with existing dir_paths
-        for (i, p) in dir_paths.iter().enumerate() {
-            dir_map.insert(p.clone(), i as u32);
-        }
+        let mut dir_map = self.dir_map.write().unwrap();
 
         // Parse new additions
         for path in adds {
@@ -206,15 +204,28 @@ impl Indexer {
             }
         }
 
-        // Rebuild records, filtering out removes
-        records.retain(|r| {
-            if (r.parent_id as usize) < dir_paths.len() {
-                let full_path = format!("{}/{}", dir_paths[r.parent_id as usize], r.name);
-                !removes.contains(&full_path)
-            } else {
-                false
+        // Build removes map: parent_id -> HashSet<String(file_name)>
+        let mut removes_map: HashMap<u32, HashSet<String>> = HashMap::new();
+        for path in removes {
+            if let Some(parent) = path.parent() {
+                let parent_str = parent.to_string_lossy().to_string();
+                if let Some(&pid) = dir_map.get(&parent_str) {
+                    if let Some(name) = path.file_name() {
+                        removes_map.entry(pid).or_default().insert(name.to_string_lossy().to_string());
+                    }
+                }
             }
-        });
+        }
+
+        if !removes_map.is_empty() {
+            records.retain(|r| {
+                if let Some(names) = removes_map.get(&r.parent_id) {
+                    !names.contains(&r.name)
+                } else {
+                    true
+                }
+            });
+        }
 
         // Append new
         records.extend(new_records);
