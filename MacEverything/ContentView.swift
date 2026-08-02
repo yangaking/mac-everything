@@ -18,6 +18,9 @@ struct ContentView: View {
     @State private var isIndexing = true
     @State private var selectedIndex: Int = 0
     @State private var hoverIndex: Int? = nil
+    
+    // QuickLook process tracking
+    @State private var quickLookTask: Process? = nil
     @FocusState private var isSearchFocused: Bool
     @State private var isNavigatingList: Bool = false
     
@@ -531,21 +534,35 @@ struct ContentView: View {
     }
     
     private func quickLook(at path: String) {
+        // Toggle behavior: if already running, terminate it and return
+        if let existingTask = quickLookTask, existingTask.isRunning {
+            existingTask.terminate()
+            quickLookTask = nil
+            return
+        }
+        
         let task = Process()
         task.launchPath = "/usr/bin/qlmanage"
         task.arguments = ["-p", path]
         
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = pipe
+        // CRITICAL FIX: Do not use unread Pipe() as it causes buffer overflow and hangs qlmanage.
+        // Redirect to /dev/null instead since we don't need the verbose logs.
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
         
         task.terminationHandler = { _ in
             DispatchQueue.main.async {
+                self.quickLookTask = nil
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
         
-        try? task.run()
+        do {
+            try task.run()
+            self.quickLookTask = task
+        } catch {
+            print("Failed to launch qlmanage: \(error)")
+        }
     }
 }
 
