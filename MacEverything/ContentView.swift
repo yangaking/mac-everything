@@ -76,7 +76,7 @@ struct ContentView: View {
                             .focused($isSearchFocused)
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 18, weight: .regular))
-                            .onChange(of: query) { _, newValue in
+                            .onChange(of: query) { newValue in
                                 isNavigatingList = false // Reset navigation state when typing
                                 performSearch(query: newValue)
                             }
@@ -244,7 +244,7 @@ struct ContentView: View {
                         .padding(.vertical, 8)
                         .padding(.horizontal, 12)
                     }
-                    .onChange(of: selectedIndex) { _, idx in
+                    .onChange(of: selectedIndex) { idx in
                         withAnimation {
                             proxy.scrollTo(idx, anchor: .center)
                         }

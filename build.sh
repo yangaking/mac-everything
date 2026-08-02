@@ -9,6 +9,9 @@ rm -f build/MacEverything.app/Contents/MacOS/MacEverything
 rm -f build/MacEverything.app/Contents/Resources/AppIcon.icns
 mkdir -p build/MacEverything.app/Contents/{MacOS,Resources}
 
+# Set deployment target for macOS 12.0 (Monterey)
+export MACOSX_DEPLOYMENT_TARGET=12.0
+
 # Compile the Rust core
 cd mac-everything-core
 cargo build --release
@@ -41,7 +44,7 @@ cat << 'EOF' > build/MacEverything.app/Contents/Info.plist
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>11.0</string>
+	<string>12.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>LSUIElement</key>
@@ -64,6 +67,7 @@ swiftc \
     MacEverything/UpdateManager.swift \
     MacEverything/AboutView.swift \
     mac-everything-core/target/release/libmac_everything_core.a \
+    -target $(uname -m)-apple-macosx12.0 \
     -I MacEverything \
     -framework SwiftUI \
     -framework AppKit \
