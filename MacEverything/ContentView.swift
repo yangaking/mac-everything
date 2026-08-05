@@ -488,6 +488,19 @@ struct ContentView: View {
                 return nil
             }
             
+            // Cmd + C (Copy file if navigating list)
+            if event.modifierFlags.contains(.command) && keyCode == 8 {
+                if self.isNavigatingList {
+                    if selectedIndex < results.count {
+                        let path = results[selectedIndex].path
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.writeObjects([URL(fileURLWithPath: path) as NSURL])
+                    }
+                    return nil
+                }
+            }
+            
             // Down Arrow
             if keyCode == 125 {
                 if selectedIndex < results.count - 1 {
@@ -619,6 +632,25 @@ struct ResultRowView: View {
                 .fill(isSelected ? Color.blue.opacity(0.6) : (isHovered ? Color.white.opacity(0.05) : Color.clear))
         )
         .contentShape(Rectangle())
+        .contextMenu {
+            Button("打开") {
+                NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
+            }
+            Button("在访达中显示") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
+            }
+            Divider()
+            Button("复制文件") {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.writeObjects([URL(fileURLWithPath: item.path) as NSURL])
+            }
+            Button("拷贝路径") {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(item.path, forType: .string)
+            }
+        }
     }
     
     // Highlight logic
