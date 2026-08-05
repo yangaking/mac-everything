@@ -11,22 +11,54 @@ pub enum HotEvent {
     Remove(PathBuf),
 }
 
-/// Highly compact memory representation of a file
-#[derive(Clone)]
+/// A compact, contiguous string pool to eliminate heap fragmentation and save massive memory
+pub struct StringPool {
+    pub buffer: Vec<u8>,
+}
+
+impl StringPool {
+    pub fn new() -> Self {
+        // Pre-allocate 1 byte so that offset 0 is safe for 'empty' or 'null'
+        Self { buffer: vec![0] }
+    }
+    
+    pub fn add(&mut self, s: &str) -> (u32, u16) {
+        if s.is_empty() { return (0, 0); }
+        let start = self.buffer.len() as u32;
+        self.buffer.extend_from_slice(s.as_bytes());
+        let len = s.len() as u16;
+        (start, len)
+    }
+    
+    pub fn get(&self, start: u32, len: u16) -> &str {
+        if len == 0 { return ""; }
+        unsafe {
+            std::str::from_utf8_unchecked(&self.buffer[start as usize .. (start + len as u32) as usize])
+        }
+    }
+}
+
+/// Highly compact memory representation of a file (40 bytes total)
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct FileRecord {
-    pub name: String,
-    pub name_lower: String,
-    pub is_dir: bool,
-    pub parent_id: u32,
-    pub pinyin: Option<String>, // "full_pinyin\0initials"
     pub size: u64,
     pub modified_time: u64,
+    pub name_start: u32,
+    pub name_lower_start: u32,
+    pub pinyin_start: u32,
+    pub parent_id: u32,
+    pub name_len: u16,
+    pub name_lower_len: u16,
+    pub pinyin_len: u16,
+    pub is_dir: bool,
 }
 
 pub struct Indexer {
     pub records: RwLock<Vec<FileRecord>>,
     pub dir_paths: RwLock<Vec<String>>,
     pub dir_map: RwLock<HashMap<String, u32>>,
+    pub string_pool: RwLock<StringPool>,
     pub pending_events: Mutex<Vec<HotEvent>>,
 }
 
@@ -36,6 +68,7 @@ impl Indexer {
             records: RwLock::new(Vec::new()),
             dir_paths: RwLock::new(Vec::new()),
             dir_map: RwLock::new(HashMap::new()),
+            string_pool: RwLock::new(StringPool::new()),
             pending_events: Mutex::new(Vec::new()),
         }
     }
@@ -51,6 +84,7 @@ impl Indexer {
         let mut records = Vec::new();
         let mut dir_paths = Vec::new();
         let mut dir_map: HashMap<String, u32> = HashMap::new();
+        let mut pool = StringPool::new();
         
         for root in roots {
             let mut it = WalkDir::new(root).follow_links(false).into_iter();
@@ -139,14 +173,25 @@ impl Indexer {
                     }
                 }
 
+                let (name_start, name_len) = pool.add(&name_str);
+                let (name_lower_start, name_lower_len) = pool.add(&name_lower);
+                let (pinyin_start, pinyin_len) = if let Some(py) = pinyin_opt {
+                    pool.add(&py)
+                } else {
+                    (0, 0)
+                };
+
                 records.push(FileRecord {
-                    name: name_str,
-                    name_lower,
-                    is_dir,
-                    parent_id,
-                    pinyin: pinyin_opt,
                     size,
                     modified_time,
+                    name_start,
+                    name_lower_start,
+                    pinyin_start,
+                    parent_id,
+                    name_len,
+                    name_lower_len,
+                    pinyin_len,
+                    is_dir,
                 });
             }
         }
@@ -154,6 +199,7 @@ impl Indexer {
         *self.records.write().unwrap() = records;
         *self.dir_paths.write().unwrap() = dir_paths;
         *self.dir_map.write().unwrap() = dir_map;
+        *self.string_pool.write().unwrap() = pool;
     }
 
     pub fn apply_updates(&self) {
@@ -200,10 +246,11 @@ impl Indexer {
         let mut records = self.records.write().unwrap();
         let mut dir_paths = self.dir_paths.write().unwrap();
         let mut dir_map = self.dir_map.write().unwrap();
+        let mut pool = self.string_pool.write().unwrap();
 
         // Parse new additions
         for path in adds {
-            if let Some(record) = Self::parse_single_path(&path, &mut dir_paths, &mut dir_map) {
+            if let Some(record) = Self::parse_single_path(&path, &mut pool, &mut dir_paths, &mut dir_map) {
                 new_records.push(record);
             }
         }
@@ -233,7 +280,8 @@ impl Indexer {
             records.retain(|r| {
                 if (r.parent_id as usize) < max_id && has_removes[r.parent_id as usize] {
                     if let Some(names) = removes_map.get(&r.parent_id) {
-                        return !names.contains(&r.name);
+                        let name = pool.get(r.name_start, r.name_len);
+                        return !names.contains(name);
                     }
                 }
                 true
@@ -244,7 +292,7 @@ impl Indexer {
         records.extend(new_records);
     }
 
-    fn parse_single_path(path: &Path, dir_paths: &mut Vec<String>, dir_map: &mut HashMap<String, u32>) -> Option<FileRecord> {
+    fn parse_single_path(path: &Path, pool: &mut StringPool, dir_paths: &mut Vec<String>, dir_map: &mut HashMap<String, u32>) -> Option<FileRecord> {
         let file_name = path.file_name()?.to_string_lossy();
         if file_name.starts_with('.') { return None; }
         
@@ -292,44 +340,58 @@ impl Indexer {
             }
         }
 
+        let (name_start, name_len) = pool.add(&name_str);
+        let (name_lower_start, name_lower_len) = pool.add(&name_lower);
+        let (pinyin_start, pinyin_len) = if let Some(py) = pinyin_opt {
+            pool.add(&py)
+        } else {
+            (0, 0)
+        };
+
         Some(FileRecord {
-            name: name_str,
-            name_lower,
-            is_dir,
-            parent_id,
-            pinyin: pinyin_opt,
             size,
             modified_time,
+            name_start,
+            name_lower_start,
+            pinyin_start,
+            parent_id,
+            name_len,
+            name_lower_len,
+            pinyin_len,
+            is_dir,
         })
     }
 
     /// Evaluates a query node against a file record and returns a matching score
-    fn evaluate_node_scored(node: &crate::query_parser::QueryNode, record: &FileRecord, dir_paths: &[String], enable_path_search: bool) -> Option<i32> {
+    fn evaluate_node_scored(node: &crate::query_parser::QueryNode, record: &FileRecord, pool: &StringPool, dir_paths: &[String], enable_path_search: bool) -> Option<i32> {
         use crate::query_parser::{QueryNode, SizeOp, DateOp};
+        let name_lower = pool.get(record.name_lower_start, record.name_lower_len);
+        
         match node {
             QueryNode::Contains(s) => {
                 let mut best_score = None;
                 
-                if record.name_lower == *s { best_score = Some(100); }
-                else if let Some(py) = &record.pinyin {
+                if name_lower == *s { best_score = Some(100); }
+                else if record.pinyin_len > 0 {
+                    let py = pool.get(record.pinyin_start, record.pinyin_len);
                     let mut split = py.split('\0');
                     if let (Some(full), Some(init)) = (split.next(), split.next()) {
                         if full == s { best_score = Some(90); }
-                        else if record.name_lower.starts_with(s) { best_score = Some(80); }
+                        else if name_lower.starts_with(s) { best_score = Some(80); }
                         else if full.starts_with(s) { best_score = Some(70); }
                         else if init == s { best_score = Some(65); }
-                        else if record.name_lower.contains(s) { best_score = Some(50); }
+                        else if name_lower.contains(s) { best_score = Some(50); }
                         else if full.contains(s) && s.len() > 1 { best_score = Some(40); }
                         else if init.contains(s) { best_score = Some(30); }
                     }
                 } else {
-                    if record.name_lower.starts_with(s) { best_score = Some(80); }
-                    else if record.name_lower.contains(s) { best_score = Some(50); }
+                    if name_lower.starts_with(s) { best_score = Some(80); }
+                    else if name_lower.contains(s) { best_score = Some(50); }
                 }
                 
                 // Extra points for precise suffix match (e.g. searching "pdf" matching ".pdf")
-                if let Some(dot_idx) = record.name_lower.rfind('.') {
-                    if &record.name_lower[dot_idx + 1..] == s {
+                if let Some(dot_idx) = name_lower.rfind('.') {
+                    if &name_lower[dot_idx + 1..] == s {
                         if best_score.is_none() || best_score.unwrap() < 75 {
                             best_score = Some(75);
                         }
@@ -347,8 +409,8 @@ impl Indexer {
                 best_score
             },
             QueryNode::Extension(ext) => {
-                if let Some(dot_idx) = record.name_lower.rfind('.') {
-                    if &record.name_lower[dot_idx + 1..] == ext {
+                if let Some(dot_idx) = name_lower.rfind('.') {
+                    if &name_lower[dot_idx + 1..] == ext {
                         return Some(10);
                     }
                 }
@@ -363,7 +425,8 @@ impl Indexer {
                 }
             },
             QueryNode::RegexMatch(re) => {
-                if re.is_match(&record.name) {
+                let name = pool.get(record.name_start, record.name_len);
+                if re.is_match(name) {
                     Some(10)
                 } else {
                     None
@@ -386,8 +449,8 @@ impl Indexer {
                 }
             },
             QueryNode::Kind(kind) => {
-                if let Some(dot_idx) = record.name_lower.rfind('.') {
-                    let ext = &record.name_lower[dot_idx + 1..];
+                if let Some(dot_idx) = name_lower.rfind('.') {
+                    let ext = &name_lower[dot_idx + 1..];
                     let is_match = match kind.as_str() {
                         "image" => matches!(ext, "jpg" | "jpeg" | "png" | "gif" | "bmp" | "webp" | "tiff" | "heic"),
                         "video" => matches!(ext, "mp4" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "webm"),
@@ -404,7 +467,7 @@ impl Indexer {
             QueryNode::And(nodes) => {
                 let mut sum = 0;
                 for n in nodes {
-                    if let Some(score) = Self::evaluate_node_scored(n, record, dir_paths, enable_path_search) {
+                    if let Some(score) = Self::evaluate_node_scored(n, record, pool, dir_paths, enable_path_search) {
                         sum += score;
                     } else {
                         return None;
@@ -415,7 +478,7 @@ impl Indexer {
             QueryNode::Or(nodes) => {
                 let mut max = None;
                 for n in nodes {
-                    if let Some(score) = Self::evaluate_node_scored(n, record, dir_paths, enable_path_search) {
+                    if let Some(score) = Self::evaluate_node_scored(n, record, pool, dir_paths, enable_path_search) {
                         match max {
                             Some(v) => if score > v { max = Some(score); },
                             None => max = Some(score),
@@ -425,7 +488,7 @@ impl Indexer {
                 max
             },
             QueryNode::Not(node) => {
-                if Self::evaluate_node_scored(node, record, dir_paths, enable_path_search).is_none() {
+                if Self::evaluate_node_scored(node, record, pool, dir_paths, enable_path_search).is_none() {
                     Some(0)
                 } else {
                     None
@@ -438,15 +501,17 @@ impl Indexer {
     pub fn search(&self, query_string: &str, limit: usize, enable_path_search: bool, sort_col: u8, sort_asc: bool) -> Vec<String> {
         let records = self.records.read().unwrap();
         let dir_paths = self.dir_paths.read().unwrap();
+        let pool = self.string_pool.read().unwrap();
         
         let query_ast = crate::query_parser::QueryParser::parse(query_string);
         
         // Multi-threaded parallel iterator via Rayon
-        let mut matched_records: Vec<(i32, &FileRecord, bool)> = records
+        let mut matched_records: Vec<(i32, FileRecord, bool)> = records
             .par_iter()
-            .filter_map(|r| {
-                if let Some(score) = Self::evaluate_node_scored(&query_ast, r, &dir_paths, enable_path_search) {
-                    let is_app = r.name_lower.ends_with(".app");
+            .filter_map(|&r| {
+                if let Some(score) = Self::evaluate_node_scored(&query_ast, &r, &pool, &dir_paths, enable_path_search) {
+                    let name_lower = pool.get(r.name_lower_start, r.name_lower_len);
+                    let is_app = name_lower.ends_with(".app");
                     Some((score, r, is_app))
                 } else {
                     None
@@ -455,17 +520,20 @@ impl Indexer {
             .collect();
             
         // Sort
-        let cmp_fn = |a: &(i32, &FileRecord, bool), b: &(i32, &FileRecord, bool)| -> std::cmp::Ordering {
+        let cmp_fn = |a: &(i32, FileRecord, bool), b: &(i32, FileRecord, bool)| -> std::cmp::Ordering {
             let app_cmp = b.2.cmp(&a.2); // Pin apps to top
             if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
             
+            let name_lower_a = pool.get(a.1.name_lower_start, a.1.name_lower_len);
+            let name_lower_b = pool.get(b.1.name_lower_start, b.1.name_lower_len);
+
             match sort_col {
                 1 => {
                     // Name
                     if sort_asc {
-                        a.1.name_lower.cmp(&b.1.name_lower)
+                        name_lower_a.cmp(name_lower_b)
                     } else {
-                        b.1.name_lower.cmp(&a.1.name_lower)
+                        name_lower_b.cmp(name_lower_a)
                     }
                 },
                 2 => {
@@ -476,7 +544,7 @@ impl Indexer {
                         b.1.size.cmp(&a.1.size)
                     };
                     if cmp == std::cmp::Ordering::Equal {
-                        a.1.name_lower.cmp(&b.1.name_lower)
+                        name_lower_a.cmp(name_lower_b)
                     } else {
                         cmp
                     }
@@ -489,22 +557,22 @@ impl Indexer {
                         b.1.modified_time.cmp(&a.1.modified_time)
                     };
                     if cmp == std::cmp::Ordering::Equal {
-                        a.1.name_lower.cmp(&b.1.name_lower)
+                        name_lower_a.cmp(name_lower_b)
                     } else {
                         cmp
                     }
                 },
                 4 => {
                     // Kind (Extension)
-                    let ext_a = a.1.name_lower.split('.').last().unwrap_or("");
-                    let ext_b = b.1.name_lower.split('.').last().unwrap_or("");
+                    let ext_a = name_lower_a.split('.').last().unwrap_or("");
+                    let ext_b = name_lower_b.split('.').last().unwrap_or("");
                     let cmp = if sort_asc {
                         ext_a.cmp(ext_b)
                     } else {
                         ext_b.cmp(ext_a)
                     };
                     if cmp == std::cmp::Ordering::Equal {
-                        a.1.name_lower.cmp(&b.1.name_lower)
+                        name_lower_a.cmp(name_lower_b)
                     } else {
                         cmp
                     }
@@ -515,7 +583,7 @@ impl Indexer {
                     if cmp == std::cmp::Ordering::Equal {
                         let t_cmp = b.1.modified_time.cmp(&a.1.modified_time);
                         if t_cmp == std::cmp::Ordering::Equal {
-                            a.1.name_lower.cmp(&b.1.name_lower)
+                            name_lower_a.cmp(name_lower_b)
                         } else {
                             t_cmp
                         }
@@ -537,7 +605,8 @@ impl Indexer {
             .take(limit)
             .map(|(_, r, _)| {
                 let parent_path = &dir_paths[r.parent_id as usize];
-                format!("{}/{}", parent_path, r.name)
+                let name = pool.get(r.name_start, r.name_len);
+                format!("{}/{}", parent_path, name)
             })
             .collect()
     }
