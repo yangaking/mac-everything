@@ -19,8 +19,8 @@ struct ContentView: View {
     @State private var selectedIndex: Int = 0
     @State private var hoverIndex: Int? = nil
     
-    // QuickLook process tracking
-    @State private var quickLookTask: Process? = nil
+    // QuickLook state
+    @State private var previewURL: URL? = nil
     @FocusState private var isSearchFocused: Bool
     @State private var isNavigatingList: Bool = false
     
@@ -251,6 +251,12 @@ struct ContentView: View {
                         withAnimation {
                             proxy.scrollTo(idx, anchor: .center)
                         }
+                        if previewURL != nil && idx < results.count {
+                            let newURL = URL(fileURLWithPath: results[idx].path)
+                            if previewURL != newURL {
+                                previewURL = newURL
+                            }
+                        }
                     }
                 }
                 
@@ -282,6 +288,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 800, minHeight: 500)
         .preferredColorScheme(.dark)
+        .background(QuickLookViewRepresentable(previewURL: $previewURL))
         .onAppear {
             isSearchFocused = true
             setupKeyboardMonitor()
@@ -461,6 +468,10 @@ struct ContentView: View {
             
             // ESC
             if keyCode == 53 {
+                if previewURL != nil {
+                    previewURL = nil
+                    return nil
+                }
                 NSApp.hide(nil)
                 return nil
             }
@@ -515,7 +526,11 @@ struct ContentView: View {
             else if keyCode == 49 {
                 if isNavigatingList || event.modifierFlags.contains(.command) {
                     if selectedIndex < results.count {
-                        quickLook(at: results[selectedIndex].path)
+                        if previewURL != nil {
+                            previewURL = nil
+                        } else {
+                            previewURL = URL(fileURLWithPath: results[selectedIndex].path)
+                        }
                     }
                     return nil
                 }
@@ -531,38 +546,6 @@ struct ContentView: View {
     
     private func revealInFinder(at path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-    }
-    
-    private func quickLook(at path: String) {
-        // Toggle behavior: if already running, terminate it and return
-        if let existingTask = quickLookTask, existingTask.isRunning {
-            existingTask.terminate()
-            quickLookTask = nil
-            return
-        }
-        
-        let task = Process()
-        task.launchPath = "/usr/bin/qlmanage"
-        task.arguments = ["-p", path]
-        
-        // CRITICAL FIX: Do not use unread Pipe() as it causes buffer overflow and hangs qlmanage.
-        // Redirect to /dev/null instead since we don't need the verbose logs.
-        task.standardOutput = FileHandle.nullDevice
-        task.standardError = FileHandle.nullDevice
-        
-        task.terminationHandler = { _ in
-            DispatchQueue.main.async {
-                self.quickLookTask = nil
-                NSApp.activate(ignoringOtherApps: true)
-            }
-        }
-        
-        do {
-            try task.run()
-            self.quickLookTask = task
-        } catch {
-            print("Failed to launch qlmanage: \(error)")
-        }
     }
 }
 
