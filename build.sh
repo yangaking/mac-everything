@@ -66,11 +66,14 @@ swiftc \
     MacEverything/HotKeyManager.swift \
     MacEverything/UpdateManager.swift \
     MacEverything/AboutView.swift \
+    MacEverything/QuickLookHelper.swift \
+  MacEverything/IconCache.swift \
     mac-everything-core/target/release/libmac_everything_core.a \
     -target $(uname -m)-apple-macosx12.0 \
     -I MacEverything \
     -framework SwiftUI \
     -framework AppKit \
+    -framework Quartz \
     -o build/MacEverything.app/Contents/MacOS/MacEverything
 
 # Force Finder to refresh the icon cache (Bulletproof method via NSWorkspace)

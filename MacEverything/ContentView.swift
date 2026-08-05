@@ -576,9 +576,7 @@ struct ResultRowView: View {
         HStack(spacing: 16) {
             // Name Column (Icon + Highlighted Text)
             HStack(spacing: 12) {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: item.path))
-                    .resizable()
-                    .scaledToFit()
+                AsyncIconView(path: item.path)
                     .frame(width: 24, height: 24)
                 
                 highlightedText(for: item.name, query: query)

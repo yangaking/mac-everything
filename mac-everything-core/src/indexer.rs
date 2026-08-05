@@ -455,24 +455,21 @@ impl Indexer {
             .collect();
             
         // Sort
-        match sort_col {
-            1 => {
-                // Name
-                matched_records.sort_unstable_by(|a, b| {
-                    let app_cmp = b.2.cmp(&a.2); // Pin apps to top
-                    if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
+        let cmp_fn = |a: &(i32, &FileRecord, bool), b: &(i32, &FileRecord, bool)| -> std::cmp::Ordering {
+            let app_cmp = b.2.cmp(&a.2); // Pin apps to top
+            if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
+            
+            match sort_col {
+                1 => {
+                    // Name
                     if sort_asc {
                         a.1.name_lower.cmp(&b.1.name_lower)
                     } else {
                         b.1.name_lower.cmp(&a.1.name_lower)
                     }
-                });
-            },
-            2 => {
-                // Size
-                matched_records.sort_unstable_by(|a, b| {
-                    let app_cmp = b.2.cmp(&a.2);
-                    if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
+                },
+                2 => {
+                    // Size
                     let cmp = if sort_asc {
                         a.1.size.cmp(&b.1.size)
                     } else {
@@ -483,13 +480,9 @@ impl Indexer {
                     } else {
                         cmp
                     }
-                });
-            },
-            3 => {
-                // ModifiedTime
-                matched_records.sort_unstable_by(|a, b| {
-                    let app_cmp = b.2.cmp(&a.2);
-                    if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
+                },
+                3 => {
+                    // ModifiedTime
                     let cmp = if sort_asc {
                         a.1.modified_time.cmp(&b.1.modified_time)
                     } else {
@@ -500,13 +493,9 @@ impl Indexer {
                     } else {
                         cmp
                     }
-                });
-            },
-            4 => {
-                // Kind (Extension)
-                matched_records.sort_unstable_by(|a, b| {
-                    let app_cmp = b.2.cmp(&a.2);
-                    if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
+                },
+                4 => {
+                    // Kind (Extension)
                     let ext_a = a.1.name_lower.split('.').last().unwrap_or("");
                     let ext_b = b.1.name_lower.split('.').last().unwrap_or("");
                     let cmp = if sort_asc {
@@ -519,13 +508,9 @@ impl Indexer {
                     } else {
                         cmp
                     }
-                });
-            },
-            _ => {
-                // Default: Score desc, then ModifiedTime desc, then Name asc
-                matched_records.sort_unstable_by(|a, b| {
-                    let app_cmp = b.2.cmp(&a.2);
-                    if app_cmp != std::cmp::Ordering::Equal { return app_cmp; }
+                },
+                _ => {
+                    // Default: Score desc, then ModifiedTime desc, then Name asc
                     let cmp = b.0.cmp(&a.0);
                     if cmp == std::cmp::Ordering::Equal {
                         let t_cmp = b.1.modified_time.cmp(&a.1.modified_time);
@@ -537,9 +522,15 @@ impl Indexer {
                     } else {
                         cmp
                     }
-                });
+                }
             }
+        };
+
+        if matched_records.len() > limit {
+            matched_records.select_nth_unstable_by(limit - 1, cmp_fn);
+            matched_records.truncate(limit);
         }
+        matched_records.sort_unstable_by(cmp_fn);
             
         // Truncate to limit and construct full paths
         matched_records.into_iter()
