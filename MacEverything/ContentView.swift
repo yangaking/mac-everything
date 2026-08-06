@@ -40,6 +40,8 @@ struct ContentView: View {
     
     @State private var isEditingFilter: Bool = false
     
+    @State private var hasFDA: Bool = PermissionManager.hasFullDiskAccess()
+    
     @ObservedObject var settings = AppSettings.shared
     
     var body: some View {
@@ -50,7 +52,15 @@ struct ContentView: View {
             Color.black.opacity(0.4)
                 .edgesIgnoringSafeArea(.all)
             
-            VStack(spacing: 0) {
+            if !hasFDA {
+                PermissionView(checkPermissionAction: {
+                    hasFDA = PermissionManager.hasFullDiskAccess()
+                    if hasFDA {
+                        NotificationCenter.default.post(name: NSNotification.Name("PermissionGranted"), object: nil)
+                    }
+                })
+            } else {
+                VStack(spacing: 0) {
                 // Header (Title bar area)
                 HStack {
                     Spacer()
@@ -285,6 +295,7 @@ struct ContentView: View {
                 .padding(.vertical, 8)
                 .background(Color.black.opacity(0.15))
             }
+            } // Close the else block containing VStack
         }
         .frame(minWidth: 800, minHeight: 500)
         .preferredColorScheme(.dark)

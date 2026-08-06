@@ -49,6 +49,16 @@ cat << 'EOF' > build/MacEverything.app/Contents/Info.plist
 	<true/>
 	<key>LSUIElement</key>
 	<true/> <!-- Hide from Dock -->
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>MacEverything 需要访问您的桌面文件夹以提供极速全局搜索服务。</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>MacEverything 需要访问您的文档文件夹以提供极速全局搜索服务。</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>MacEverything 需要访问您的下载文件夹以提供极速全局搜索服务。</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>MacEverything 需要访问网络卷以提供全盘极速搜索服务。</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>MacEverything 需要访问外部磁盘以提供全盘极速搜索服务。</string>
 </dict>
 </plist>
 EOF
@@ -67,7 +77,8 @@ swiftc \
     MacEverything/UpdateManager.swift \
     MacEverything/AboutView.swift \
     MacEverything/QuickLookHelper.swift \
-  MacEverything/IconCache.swift \
+    MacEverything/IconCache.swift \
+    MacEverything/PermissionView.swift \
     mac-everything-core/target/release/libmac_everything_core.a \
     -target $(uname -m)-apple-macosx12.0 \
     -I MacEverything \
@@ -75,6 +86,11 @@ swiftc \
     -framework AppKit \
     -framework Quartz \
     -o build/MacEverything.app/Contents/MacOS/MacEverything
+
+echo "Signing app with MacEverythingCert (if available)..."
+find build/MacEverything.app -exec xattr -c {} \; 2>/dev/null || true
+find build/MacEverything.app -name ".DS_Store" -delete
+codesign --force --deep --sign "MacEverythingCert" build/MacEverything.app || echo "Warning: MacEverythingCert not found. App signed with ad-hoc signature."
 
 # Force Finder to refresh the icon cache (Bulletproof method via NSWorkspace)
 cat << 'EOF' > set_icon_build.swift

@@ -51,7 +51,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return event
         }
         
-        // Initialize the Rust engine in the background to prevent UI freezing
+        if PermissionManager.hasFullDiskAccess() {
+            startEngine()
+        } else {
+            // Listen for permission granted notification
+            NotificationCenter.default.addObserver(forName: NSNotification.Name("PermissionGranted"), object: nil, queue: .main) { [weak self] _ in
+                self?.startEngine()
+            }
+        }
+    }
+    
+    func startEngine() {
         NotificationCenter.default.post(name: NSNotification.Name("IndexingStarted"), object: nil)
         DispatchQueue.global(qos: .userInitiated).async {
             let paths = [NSHomeDirectory(), "/Applications", "/System/Applications"]
