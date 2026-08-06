@@ -5,8 +5,7 @@ echo "Stopping existing app..."
 killall MacEverything 2>/dev/null || true
 
 echo "Removing old build files..."
-rm -f build/MacEverything.app/Contents/MacOS/MacEverything
-rm -f build/MacEverything.app/Contents/Resources/AppIcon.icns
+rm -rf build/MacEverything.app
 mkdir -p build/MacEverything.app/Contents/{MacOS,Resources}
 
 # Set deployment target for macOS 12.0 (Monterey)
