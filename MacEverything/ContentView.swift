@@ -323,6 +323,9 @@ struct ContentView: View {
                 performSearch(query: query)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ClearSearchQuery"))) { _ in
+            self.query = ""
+        }
     }
     
     // Sortable Header View Builder

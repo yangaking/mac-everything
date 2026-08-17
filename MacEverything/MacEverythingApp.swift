@@ -5,11 +5,13 @@ import MacEverythingCore
 
 
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var searchWindow: NSWindow!
     var settingsWindow: NSWindow!
     var aboutWindow: NSWindow!
     var statusItem: NSStatusItem!
+    
+    private var lastHideTime: Date?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenu()
@@ -124,6 +126,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         searchWindow.appearance = NSAppearance(named: .darkAqua) // Force dark mode
         searchWindow.contentView = NSHostingView(rootView: contentView)
         searchWindow.isReleasedWhenClosed = false
+        searchWindow.delegate = self
     }
     
     func setupSettingsWindow() {
@@ -267,5 +270,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             searchWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+    
+    func windowDidResignKey(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window == searchWindow {
+            lastHideTime = Date()
+        }
+    }
+    
+    func windowDidBecomeKey(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window == searchWindow {
+            checkAndClearSearchCache()
+        }
+    }
+    
+    private func checkAndClearSearchCache() {
+        let timeoutMinutes = AppSettings.shared.searchCacheTimeoutMinutes
+        if timeoutMinutes == 0 {
+            NotificationCenter.default.post(name: NSNotification.Name("ClearSearchQuery"), object: nil)
+            return
+        }
+        
+        if let lastHide = lastHideTime {
+            let elapsed = Date().timeIntervalSince(lastHide)
+            if elapsed > Double(timeoutMinutes * 60) {
+                NotificationCenter.default.post(name: NSNotification.Name("ClearSearchQuery"), object: nil)
+            }
+        }
+        lastHideTime = nil
     }
 }

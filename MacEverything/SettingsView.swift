@@ -13,6 +13,11 @@ class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(enablePathSearch, forKey: "enablePathSearch") }
     }
     
+    @Published var searchCacheTimeoutMinutes: Int {
+        didSet { UserDefaults.standard.set(searchCacheTimeoutMinutes, forKey: "searchCacheTimeoutMinutes") }
+    }
+    
+    // Global Toggle Hotkey
     @Published var hotkeyCode: UInt32 {
         didSet { UserDefaults.standard.set(Int(hotkeyCode), forKey: "hotkeyCode") }
     }
@@ -54,6 +59,13 @@ class AppSettings: ObservableObject {
     init() {
         self.enableRegexDefault = UserDefaults.standard.bool(forKey: "enableRegexDefault")
         self.enablePathSearch = UserDefaults.standard.bool(forKey: "enablePathSearch")
+        
+        let savedTimeout = UserDefaults.standard.object(forKey: "searchCacheTimeoutMinutes")
+        if savedTimeout == nil {
+            self.searchCacheTimeoutMinutes = 5
+        } else {
+            self.searchCacheTimeoutMinutes = UserDefaults.standard.integer(forKey: "searchCacheTimeoutMinutes")
+        }
         
         let savedCode = UserDefaults.standard.integer(forKey: "hotkeyCode")
         let savedMods = UserDefaults.standard.integer(forKey: "hotkeyModifiers")
@@ -112,6 +124,17 @@ struct SettingsView: View {
             
             Toggle("Enable Regex Search by default", isOn: $settings.enableRegexDefault)
             Toggle("Enable Path Search by default", isOn: $settings.enablePathSearch)
+            
+            HStack {
+                Text("保持上次搜索结果时长 (分钟):")
+                Stepper(value: $settings.searchCacheTimeoutMinutes, in: 0...1440) {
+                    if settings.searchCacheTimeoutMinutes == 0 {
+                        Text("不保持 (每次清除)")
+                    } else {
+                        Text("\(settings.searchCacheTimeoutMinutes) 分钟")
+                    }
+                }
+            }
             
             Divider()
             
