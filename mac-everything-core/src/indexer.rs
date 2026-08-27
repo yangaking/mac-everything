@@ -60,6 +60,8 @@ pub struct Indexer {
     pub dir_map: RwLock<HashMap<String, u32>>,
     pub string_pool: RwLock<StringPool>,
     pub pending_events: Mutex<Vec<HotEvent>>,
+    pub roots: RwLock<Vec<String>>,
+    pub wasted_bytes: Mutex<usize>,
 }
 
 impl Indexer {
@@ -70,6 +72,8 @@ impl Indexer {
             dir_map: RwLock::new(HashMap::new()),
             string_pool: RwLock::new(StringPool::new()),
             pending_events: Mutex::new(Vec::new()),
+            roots: RwLock::new(Vec::new()),
+            wasted_bytes: Mutex::new(0),
         }
     }
 
@@ -200,6 +204,10 @@ impl Indexer {
         *self.dir_paths.write().unwrap() = dir_paths;
         *self.dir_map.write().unwrap() = dir_map;
         *self.string_pool.write().unwrap() = pool;
+        
+        let root_strings = roots.iter().map(|p| p.as_ref().to_string_lossy().to_string()).collect();
+        *self.roots.write().unwrap() = root_strings;
+        *self.wasted_bytes.lock().unwrap() = 0;
     }
 
     pub fn apply_updates(&self) {
@@ -268,6 +276,8 @@ impl Indexer {
             }
         }
 
+        let mut should_rebuild = false;
+        
         if !removes_map.is_empty() {
             let max_id = dir_paths.len();
             let mut has_removes = vec![false; max_id];
@@ -277,19 +287,40 @@ impl Indexer {
                 }
             }
             
+            let mut local_wasted = 0;
             records.retain(|r| {
                 if (r.parent_id as usize) < max_id && has_removes[r.parent_id as usize] {
                     if let Some(names) = removes_map.get(&r.parent_id) {
                         let name = pool.get(r.name_start, r.name_len);
-                        return !names.contains(name);
+                        if names.contains(name) {
+                            local_wasted += r.name_len as usize + r.name_lower_len as usize + r.pinyin_len as usize;
+                            return false;
+                        }
                     }
                 }
                 true
             });
+            
+            let mut w = self.wasted_bytes.lock().unwrap();
+            *w += local_wasted;
+            if *w > 50 * 1024 * 1024 || pool.buffer.len() > 150 * 1024 * 1024 {
+                should_rebuild = true;
+            }
         }
 
         // Append new
         records.extend(new_records);
+        
+        // Drop locks to avoid deadlock during rebuild
+        drop(records);
+        drop(dir_paths);
+        drop(dir_map);
+        drop(pool);
+        
+        if should_rebuild {
+            let roots = self.roots.read().unwrap().clone();
+            self.scan_directories(&roots);
+        }
     }
 
     fn parse_single_path(path: &Path, pool: &mut StringPool, dir_paths: &mut Vec<String>, dir_map: &mut HashMap<String, u32>) -> Option<FileRecord> {
