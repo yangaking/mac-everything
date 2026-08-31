@@ -22,6 +22,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupStatusBar()
         registerGlobalHotkey()
         
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+        
         // Prevent App Nap so the global hotkey always responds immediately
         activityToken = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
@@ -276,6 +283,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             searchWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+    
+    @objc func handleWake(_ notification: Notification) {
+        // Carbon event handlers can sometimes become unresponsive after a deep system sleep.
+        // Re-registering the hotkey ensures it binds to the active event dispatcher.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.registerGlobalHotkey()
         }
     }
     
