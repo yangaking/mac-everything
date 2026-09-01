@@ -12,7 +12,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var statusItem: NSStatusItem!
     
     private var lastHideTime: Date?
-    private var activityToken: NSObjectProtocol?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenu()
@@ -27,12 +26,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             selector: #selector(handleWake),
             name: NSWorkspace.didWakeNotification,
             object: nil
-        )
-        
-        // Prevent App Nap so the global hotkey always responds immediately
-        activityToken = ProcessInfo.processInfo.beginActivity(
-            options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
-            reason: "Global Hotkey Server must stay responsive"
         )
         
         // Check for updates automatically on launch (after a brief delay)

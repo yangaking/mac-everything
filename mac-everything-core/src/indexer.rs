@@ -381,7 +381,10 @@ impl Indexer {
         // Check if we should rebuild (either too much wasted space or total pool size too large)
         {
             let w = self.wasted_bytes.lock().unwrap();
-            if *w > 50 * 1024 * 1024 || pool.buffer.len() > 150 * 1024 * 1024 {
+            // Rebuild if we have accumulated more than 50MB of dead string fragments.
+            // DO NOT check absolute pool size here, because users with 1M+ files will naturally exceed 150MB,
+            // which would cause an infinite rebuild loop!
+            if *w > 50 * 1024 * 1024 {
                 should_rebuild = true;
             }
         }

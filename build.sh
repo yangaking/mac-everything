@@ -39,7 +39,7 @@ cat << 'EOF' > build/MacEverything.app/Contents/Info.plist
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.4</string>
+	<string>0.1.5</string>
 	<key>CFBundleVersion</key>
 	<string>3</string>
 	<key>LSMinimumSystemVersion</key>
@@ -48,6 +48,8 @@ cat << 'EOF' > build/MacEverything.app/Contents/Info.plist
 	<true/>
 	<key>LSUIElement</key>
 	<true/> <!-- Hide from Dock -->
+	<key>NSAppSleepDisabled</key>
+	<true/> <!-- Prevent App Nap entirely at the plist level -->
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>MacEverything 需要访问您的桌面文件夹以提供极速全局搜索服务。</string>
 	<key>NSDocumentsFolderUsageDescription</key>
