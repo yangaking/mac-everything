@@ -84,10 +84,25 @@ swiftc \
     -framework Quartz \
     -o build/MacEverything.app/Contents/MacOS/MacEverything
 
-echo "Signing app with MacEverythingCert (if available)..."
+# Signing. Default is ad-hoc (`-`), which is sufficient for personal/open-source
+# distribution (users right-click -> Open on first launch). To sign for smooth
+# distribution, set DEVELOPER_ID to your "Developer ID Application" identity:
+#   DEVELOPER_ID="Developer ID Application: Your Name (TEAMID)" ./build.sh
+SIGN_IDENTITY="${DEVELOPER_ID:--}"
+echo "Signing app (identity: $SIGN_IDENTITY)..."
 find build/MacEverything.app -exec xattr -c {} \; 2>/dev/null || true
 find build/MacEverything.app -name ".DS_Store" -delete
-codesign --force --deep --sign "MacEverythingCert" build/MacEverything.app || echo "Warning: MacEverythingCert not found. App signed with ad-hoc signature."
+codesign --force --deep --sign "$SIGN_IDENTITY" build/MacEverything.app
+
+# Optional notarization (requires an Apple Developer account). Enable with:
+#   NOTARIZE=1 NOTARY_PROFILE=<stored-notarytool-profile> ./build.sh
+if [ "${NOTARIZE:-0}" = "1" ]; then
+    echo "Submitting for notarization..."
+    ditto -c -k --keepParent build/MacEverything.app build/MacEverything.zip
+    xcrun notarytool submit build/MacEverything.zip --keychain-profile "${NOTARY_PROFILE}" --wait
+    xcrun stapler staple build/MacEverything.app
+    rm -f build/MacEverything.zip
+fi
 
 # Force Finder to refresh the icon cache (Bulletproof method via NSWorkspace)
 cat << 'EOF' > set_icon_build.swift

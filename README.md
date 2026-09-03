@@ -48,6 +48,16 @@ MacEverything 是一款专注于 macOS 平台的高性能本地文件搜索工�
 想要搜索本周修改的、大于 10MB 的 PDF 文档：
 `kind:doc size:>10mb date:thisweek`
 
+## 📥 安装 (Installation)
+
+1. 从 [Releases](https://github.com/yangaking/mac-everything/releases) 下载最新 `MacEverything-x.y.z.dmg`。
+2. 双击挂载后，将 `MacEverything.app` 拖入「应用程序」文件夹。
+3. **首次打开**：由于目前使用临时（ad-hoc）签名（未加入 Apple Developer Program），macOS 可能提示「无法验证开发者」。请**右键点击应用 → 打开 → 打开**；或在「系统设置 → 隐私与安全性」点「仍要打开」。
+   - 也可用命令解除隔离：`xattr -d com.apple.quarantine /Applications/MacEverything.app`
+4. 首次运行需授予「完全磁盘访问权限 (Full Disk Access)」以建立全局索引。
+
+> 想彻底消除 Gatekeeper 警告，需 Apple Developer ID 签名 + 公证（$99/年）。
+
 ## 🛠️ 构建指南 (Build Instructions)
 
 本项目分为 `mac-everything-core` (Rust) 和 SwiftUI 前端两部分。
