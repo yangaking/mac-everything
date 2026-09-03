@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::indexer::{FileRecord, Indexer, StringPool};
 
 const MAGIC: [u8; 8] = *b"MEVTIDX1";
-const VERSION: u32 = 2;
+const VERSION: u32 = 1;
 const HEADER_LEN: usize = 40; // magic(8) + version(4) + pool_len(8) + record_count(8) + dir_count(8) + reserved(4)
 
 /// Returns the default on-disk snapshot path (inside the user's Application Support dir).
