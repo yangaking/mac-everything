@@ -51,7 +51,7 @@ pub struct FileRecord {
     pub name_len: u16,
     pub name_lower_len: u16,
     pub pinyin_len: u16,
-    pub is_dir: bool,
+    pub is_dir: u8,
 }
 
 pub struct Indexer {
@@ -195,7 +195,7 @@ impl Indexer {
                     name_len,
                     name_lower_len,
                     pinyin_len,
-                    is_dir,
+                    is_dir: is_dir as u8,
                 });
             }
         }
@@ -332,7 +332,7 @@ impl Indexer {
                 name_len,
                 name_lower_len,
                 pinyin_len,
-                is_dir,
+                is_dir: is_dir as u8,
             });
         }
 
@@ -470,7 +470,7 @@ impl Indexer {
             name_len,
             name_lower_len,
             pinyin_len,
-            is_dir,
+            is_dir: is_dir as u8,
         })
     }
 

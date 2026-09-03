@@ -54,7 +54,7 @@ fn build_synthetic_index(n: usize) -> Indexer {
             name_len: nl,
             name_lower_len: nll,
             pinyin_len: 0,
-            is_dir: false,
+            is_dir: 0,
         });
     }
 

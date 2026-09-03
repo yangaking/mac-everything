@@ -73,12 +73,33 @@ pub extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count: usize
     }
 
     if !roots.is_empty() {
-        let indexer = Indexer::new();
-        // Perform initial scan
-        indexer.scan_directories(&roots);
-        
+        // Fast cold start: try loading a persisted snapshot; fall back to a full scan.
+        let snapshot = crate::persist::default_snapshot_path()
+            .and_then(|p| crate::persist::load_indexer(&p).ok());
+        let (indexer, needs_save) = match snapshot {
+            Some(idx) => (idx, false),
+            None => {
+                let idx = Indexer::new();
+                idx.scan_directories(&roots);
+                (idx, true)
+            }
+        };
+        // The load path does not persist roots; restore them for the rebuild logic.
+        *indexer.roots.write().unwrap() = roots.clone();
+
         // Ignore initialization error if it was already initialized
         if INDEXER.set(indexer).is_ok() {
+            // Persist a freshly-scanned index in the background (no-op on snapshot load).
+            if needs_save {
+                std::thread::spawn(|| {
+                    if let Some(p) = crate::persist::default_snapshot_path() {
+                        if let Some(idx) = INDEXER.get() {
+                            let _ = crate::persist::save_indexer(idx, &p);
+                        }
+                    }
+                });
+            }
+
             // Start FSEventMonitor here in background
             let mut monitor = crate::fsevents::FsEventMonitor::new();
             let monitor_roots = roots.clone();
