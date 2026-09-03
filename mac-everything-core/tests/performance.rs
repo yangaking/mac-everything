@@ -113,3 +113,33 @@ fn benchmark_search_1m() {
     assert!(plain_median < 500, "plain search regressed: {plain_median} ms");
     assert!(re_median < 500, "regex search regressed: {re_median} ms");
 }
+
+/// Measures index-file size and cold-start load time (persistence snapshot).
+#[test]
+#[ignore = "performance benchmark: run with `cargo test --release -- --ignored --nocapture`"]
+fn benchmark_persistence_1m() {
+    use mac_everything_core::persist::{load_indexer, save_indexer};
+    use tempfile::tempdir;
+
+    let indexer = build_synthetic_index(N);
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("index.bin");
+
+    let t = Instant::now();
+    save_indexer(&indexer, &path).unwrap();
+    let save_ms = t.elapsed().as_millis();
+
+    let size_mb = std::fs::metadata(&path).unwrap().len() as f64 / (1024.0 * 1024.0);
+
+    let t = Instant::now();
+    let loaded = load_indexer(&path).unwrap();
+    let load_ms = t.elapsed().as_millis();
+
+    println!("\n=== MacEverything persistence benchmark (N={N}) ===");
+    println!("index file size: {size_mb:.1} MB (target <50MB)");
+    println!("save: {save_ms} ms");
+    println!("cold-start load: {load_ms} ms (target <500ms)");
+
+    assert_eq!(loaded.records.read().unwrap().len(), N);
+    assert!(load_ms < 5000, "load regressed: {load_ms} ms");
+}
