@@ -123,6 +123,22 @@ pub extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count: usize
                     }
                 }
             });
+
+            // Periodic reconciliation: re-scan roots on a slow schedule to catch
+            // any drifted/missed events (FSEvents overflow, moves, etc.), then
+            // re-persist the corrected index.
+            std::thread::spawn(|| {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(30 * 60));
+                    if let Some(idx) = INDEXER.get() {
+                        let roots = idx.roots.read().unwrap().clone();
+                        idx.scan_directories(&roots);
+                        if let Some(p) = crate::persist::default_snapshot_path() {
+                            let _ = crate::persist::save_indexer(idx, &p);
+                        }
+                    }
+                }
+            });
         }
     }
 }

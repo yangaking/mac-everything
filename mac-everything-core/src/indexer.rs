@@ -9,6 +9,8 @@ use pinyin::ToPinyin;
 pub enum HotEvent {
     Add(PathBuf),
     Remove(PathBuf),
+    AddDir(PathBuf),
+    RemoveDir(PathBuf),
 }
 
 /// A compact, contiguous string pool to eliminate heap fragmentation and save massive memory
@@ -227,7 +229,10 @@ impl Indexer {
         let mut latest_events: HashMap<PathBuf, HotEvent> = HashMap::new();
         for ev in queue {
             match &ev {
-                HotEvent::Add(p) | HotEvent::Remove(p) => {
+                HotEvent::Add(p)
+                | HotEvent::Remove(p)
+                | HotEvent::AddDir(p)
+                | HotEvent::RemoveDir(p) => {
                     latest_events.insert(p.clone(), ev);
                 }
             }
@@ -235,7 +240,9 @@ impl Indexer {
 
         let mut removes = Vec::new();
         let mut adds = Vec::new();
-        
+        let mut remove_dirs = Vec::new();
+        let mut add_dirs = Vec::new();
+
         for (path, ev) in latest_events {
             match ev {
                 HotEvent::Remove(_) => {
@@ -244,11 +251,41 @@ impl Indexer {
                 HotEvent::Add(_) => {
                     removes.push(path.clone());
                     adds.push(path);
-                }
+                },
+                HotEvent::RemoveDir(_) => {
+                    remove_dirs.push(path);
+                },
+                HotEvent::AddDir(_) => {
+                    add_dirs.push(path);
+                },
             }
         }
 
-        if removes.is_empty() && adds.is_empty() {
+        // Expand each AddDir into per-entry adds by walking the subtree (no locks held).
+        for dir in add_dirs {
+            let mut it = WalkDir::new(&dir).follow_links(false).into_iter();
+            loop {
+                let entry = match it.next() {
+                    None => break,
+                    Some(Err(_)) => continue,
+                    Some(Ok(entry)) => entry,
+                };
+                let path = entry.path();
+                let file_name = entry.file_name().to_string_lossy();
+                let is_dir = entry.file_type().is_dir();
+                if is_excluded(path, &file_name, entry.depth()) {
+                    if is_dir { it.skip_current_dir(); }
+                    continue;
+                }
+                if is_dir && file_name.ends_with(".app") {
+                    it.skip_current_dir();
+                    continue;
+                }
+                adds.push(path.to_path_buf());
+            }
+        }
+
+        if removes.is_empty() && adds.is_empty() && remove_dirs.is_empty() {
             return;
         }
 
@@ -358,18 +395,39 @@ impl Indexer {
         }
 
         let mut should_rebuild = false;
-        
-        if !removes_map.is_empty() {
-            let max_id = dir_paths.len();
-            let mut has_removes = vec![false; max_id];
-            for &pid in removes_map.keys() {
-                if (pid as usize) < max_id {
-                    has_removes[pid as usize] = true;
+
+        // Subtree removal: compute the set of parent ids under each removed directory,
+        // plus each removed directory's own (parent_id, name) identity.
+        let mut remove_subtree_ids: HashSet<u32> = HashSet::new();
+        let mut remove_subtree_own: Vec<(u32, String)> = Vec::new();
+        for dir in &remove_dirs {
+            let d_str = dir.to_string_lossy().to_string();
+            let d_prefix = format!("{}/", d_str);
+            for (i, p) in dir_paths.iter().enumerate() {
+                if *p == d_str || p.starts_with(&d_prefix) {
+                    remove_subtree_ids.insert(i as u32);
                 }
             }
-            
+            if let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) {
+                let parent_str = parent.to_string_lossy().to_string();
+                if let Some(&pid) = dir_map.get(&parent_str) {
+                    remove_subtree_own.push((pid, name.to_string_lossy().to_string()));
+                }
+            }
+        }
+
+        let max_id = dir_paths.len();
+        let mut has_removes = vec![false; max_id];
+        for &pid in removes_map.keys() {
+            if (pid as usize) < max_id {
+                has_removes[pid as usize] = true;
+            }
+        }
+
+        if !removes_map.is_empty() || !remove_subtree_ids.is_empty() || !remove_subtree_own.is_empty() {
             let mut local_wasted = 0;
             records.retain(|r| {
+                // Single-file/dir removal by (parent_id, name).
                 if (r.parent_id as usize) < max_id && has_removes[r.parent_id as usize] {
                     if let Some(names) = removes_map.get(&r.parent_id) {
                         let name = pool.get(r.name_start, r.name_len);
@@ -379,9 +437,21 @@ impl Indexer {
                         }
                     }
                 }
+                // Subtree removal: any record whose parent is under a removed directory.
+                if remove_subtree_ids.contains(&r.parent_id) {
+                    local_wasted += r.name_len as usize + r.name_lower_len as usize + r.pinyin_len as usize;
+                    return false;
+                }
+                // The removed directory's own record.
+                for (pid, name) in &remove_subtree_own {
+                    if r.parent_id == *pid && pool.get(r.name_start, r.name_len) == name {
+                        local_wasted += r.name_len as usize + r.name_lower_len as usize + r.pinyin_len as usize;
+                        return false;
+                    }
+                }
                 true
             });
-            
+
             let mut w = self.wasted_bytes.lock().unwrap();
             *w += local_wasted;
         }
@@ -846,5 +916,53 @@ mod tests {
             .expect("file record should exist");
         assert_eq!(file_record.name_start, file_record.name_lower_start);
         assert_eq!(file_record.name_len, file_record.name_lower_len);
+    }
+
+    #[test]
+    fn test_directory_move_updates_index() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir(root.join("old")).unwrap();
+        fs::write(root.join("old").join("data.txt"), "x").unwrap();
+
+        let indexer = Indexer::new();
+        indexer.scan_directories(&[root]);
+
+        // "data.txt" is indexed under "old".
+        let before = indexer.search("data", 10, false, 0, false);
+        assert_eq!(before.len(), 1);
+        assert!(before[0].contains("/old/"), "unexpected path: {}", before[0]);
+
+        // Simulate a directory move: FSEvents reports remove(old) + create(new).
+        fs::rename(root.join("old"), root.join("new")).unwrap();
+        indexer.enqueue_event(HotEvent::RemoveDir(root.join("old")));
+        indexer.enqueue_event(HotEvent::AddDir(root.join("new")));
+        indexer.apply_updates();
+
+        // "data.txt" must now be under "new", with no stale "old" entry.
+        let after = indexer.search("data", 10, false, 0, false);
+        assert_eq!(after.len(), 1, "expected exactly one result, got {:?}", after);
+        assert!(after[0].contains("/new/"), "unexpected path: {}", after[0]);
+    }
+
+    #[test]
+    fn test_remove_dir_removes_subtree() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("sub").join("deep")).unwrap();
+        fs::write(root.join("sub").join("alpha_file.txt"), "x").unwrap();
+        fs::write(root.join("sub").join("deep").join("beta_file.txt"), "x").unwrap();
+
+        let indexer = Indexer::new();
+        indexer.scan_directories(&[root]);
+        assert_eq!(indexer.search("alpha_file", 10, false, 0, false).len(), 1);
+        assert_eq!(indexer.search("beta_file", 10, false, 0, false).len(), 1);
+
+        fs::remove_dir_all(root.join("sub")).unwrap();
+        indexer.enqueue_event(HotEvent::RemoveDir(root.join("sub")));
+        indexer.apply_updates();
+
+        assert_eq!(indexer.search("alpha_file", 10, false, 0, false).len(), 0);
+        assert_eq!(indexer.search("beta_file", 10, false, 0, false).len(), 0);
     }
 }
