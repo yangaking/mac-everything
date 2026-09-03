@@ -72,6 +72,32 @@ fn is_excluded(path: &Path, file_name: &str, depth: usize) -> bool {
     false
 }
 
+/// Builds a `full_pinyin\0initial_pinyin` string for a name, or `None` for pure-ASCII names.
+fn build_pinyin(name: &str) -> Option<String> {
+    if !name.chars().any(|c| !c.is_ascii()) {
+        return None;
+    }
+    let mut full_py = String::new();
+    let mut initial_py = String::new();
+    for c in name.chars() {
+        if let Some(py) = c.to_pinyin() {
+            let py_str = py.plain();
+            full_py.push_str(py_str);
+            if let Some(ch) = py_str.chars().next() {
+                initial_py.push(ch);
+            }
+        } else {
+            full_py.push(c.to_ascii_lowercase());
+            initial_py.push(c.to_ascii_lowercase());
+        }
+    }
+    if full_py.is_empty() {
+        None
+    } else {
+        Some(format!("{}\0{}", full_py, initial_py))
+    }
+}
+
 pub struct Indexer {
     pub records: RwLock<Vec<FileRecord>>,
     pub dir_paths: RwLock<Vec<String>>,
@@ -158,26 +184,7 @@ impl Indexer {
                 }
                 
                 // Pinyin generation
-                let mut pinyin_opt = None;
-                if name_str.chars().any(|c| !c.is_ascii()) {
-                    let mut full_py = String::new();
-                    let mut initial_py = String::new();
-                    for c in name_str.chars() {
-                        if let Some(py) = c.to_pinyin() {
-                            let py_str = py.plain();
-                            full_py.push_str(py_str);
-                            if let Some(ch) = py_str.chars().next() {
-                                initial_py.push(ch);
-                            }
-                        } else {
-                            full_py.push(c.to_ascii_lowercase());
-                            initial_py.push(c.to_ascii_lowercase());
-                        }
-                    }
-                    if !full_py.is_empty() {
-                        pinyin_opt = Some(format!("{}\0{}", full_py, initial_py));
-                    }
-                }
+                let pinyin_opt = build_pinyin(&name_str);
 
                 let (name_start, name_len) = pool.add(&name_str);
                 let (name_lower_start, name_lower_len) = if name_lower == name_str {
@@ -311,26 +318,7 @@ impl Indexer {
                 let name_str = file_name.into_owned();
                 let name_lower = name_str.to_lowercase();
                 
-                let mut pinyin_opt = None;
-                if name_str.chars().any(|c| !c.is_ascii()) {
-                    let mut full_py = String::new();
-                    let mut initial_py = String::new();
-                    for c in name_str.chars() {
-                        if let Some(py) = pinyin::ToPinyin::to_pinyin(&c) {
-                            let py_str = py.plain();
-                            full_py.push_str(py_str);
-                            if let Some(ch) = py_str.chars().next() {
-                                initial_py.push(ch);
-                            }
-                        } else {
-                            full_py.push(c.to_ascii_lowercase());
-                            initial_py.push(c.to_ascii_lowercase());
-                        }
-                    }
-                    if !full_py.is_empty() {
-                        pinyin_opt = Some(format!("{}\0{}", full_py, initial_py));
-                    }
-                }
+                let pinyin_opt = build_pinyin(&name_str);
                 
                 pre_parsed_adds.push((path.clone(), name_str, name_lower, pinyin_opt, metadata.is_dir(), size, modified_time));
             }
@@ -480,80 +468,6 @@ impl Indexer {
             let roots = self.roots.read().unwrap().clone();
             self.scan_directories(&roots);
         }
-    }
-
-    fn parse_single_path(path: &Path, pool: &mut StringPool, dir_paths: &mut Vec<String>, dir_map: &mut HashMap<String, u32>) -> Option<FileRecord> {
-        let file_name = path.file_name()?.to_string_lossy();
-        if file_name.starts_with('.') { return None; }
-        
-        let metadata = std::fs::symlink_metadata(path).ok()?;
-        let is_dir = metadata.is_dir();
-
-        let parent = path.parent().unwrap_or(Path::new(""));
-        let parent_str = parent.to_string_lossy().to_string();
-        
-        let parent_id = *dir_map.entry(parent_str.clone()).or_insert_with(|| {
-            let id = dir_paths.len() as u32;
-            dir_paths.push(parent_str);
-            id
-        });
-
-        let name_str = file_name.into_owned();
-        let name_lower = name_str.to_lowercase();
-        
-        let size = metadata.len();
-        let mut modified_time = 0;
-        if let Ok(sys_time) = metadata.modified() {
-            if let Ok(duration) = sys_time.duration_since(std::time::UNIX_EPOCH) {
-                modified_time = duration.as_secs();
-            }
-        }
-        
-        let mut pinyin_opt = None;
-        if name_str.chars().any(|c| !c.is_ascii()) {
-            let mut full_py = String::new();
-            let mut initial_py = String::new();
-            for c in name_str.chars() {
-                if let Some(py) = c.to_pinyin() {
-                    let py_str = py.plain();
-                    full_py.push_str(py_str);
-                    if let Some(ch) = py_str.chars().next() {
-                        initial_py.push(ch);
-                    }
-                } else {
-                    full_py.push(c.to_ascii_lowercase());
-                    initial_py.push(c.to_ascii_lowercase());
-                }
-            }
-            if !full_py.is_empty() {
-                pinyin_opt = Some(format!("{}\0{}", full_py, initial_py));
-            }
-        }
-
-        let (name_start, name_len) = pool.add(&name_str);
-        let (name_lower_start, name_lower_len) = if name_lower == name_str {
-            (name_start, name_len)
-        } else {
-            pool.add(&name_lower)
-        };
-        let (pinyin_start, pinyin_len) = if let Some(py) = pinyin_opt {
-            pool.add(&py)
-        } else {
-            (0, 0)
-        };
-
-        Some(FileRecord {
-            size,
-            modified_time,
-            name_start,
-            name_lower_start,
-            pinyin_start,
-            parent_id,
-            name_len,
-            name_lower_len,
-            pinyin_len,
-            is_dir: is_dir as u8,
-        })
     }
 
     /// Evaluates a query node against a file record and returns a matching score
@@ -1020,5 +934,16 @@ mod tests {
         // /readme/ must match README.txt case-insensitively (consistent with regex:).
         let res = indexer.search("/readme/", 100, false, 0, false);
         assert!(res.iter().any(|p| p.ends_with("README.txt")), "expected README.txt, got {:?}", res);
+    }
+
+    #[test]
+    fn test_build_pinyin() {
+        // Pure-ASCII names have no pinyin form.
+        assert_eq!(build_pinyin("abc.txt"), None);
+        // Chinese names produce full + initial pinyin, separated by '\0'.
+        let py = build_pinyin("微信").expect("Chinese name should produce pinyin");
+        let mut parts = py.split('\0');
+        assert_eq!(parts.next(), Some("weixin"));
+        assert_eq!(parts.next(), Some("wx"));
     }
 }

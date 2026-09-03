@@ -3,7 +3,7 @@ import AppKit
 import MacEverythingCore
 
 struct FileItem: Identifiable, Equatable {
-    let id = UUID()
+    var id: String { path }
     let path: String
     let name: String
     let dirPath: String

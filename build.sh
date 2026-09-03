@@ -56,16 +56,6 @@ cat << 'EOF' > build/MacEverything.app/Contents/Info.plist
 	<true/> <!-- Hide from Dock -->
 	<key>NSAppSleepDisabled</key>
 	<true/> <!-- Prevent App Nap entirely at the plist level -->
-	<key>NSDesktopFolderUsageDescription</key>
-	<string>MacEverything 需要访问您的桌面文件夹以提供极速全局搜索服务。</string>
-	<key>NSDocumentsFolderUsageDescription</key>
-	<string>MacEverything 需要访问您的文档文件夹以提供极速全局搜索服务。</string>
-	<key>NSDownloadsFolderUsageDescription</key>
-	<string>MacEverything 需要访问您的下载文件夹以提供极速全局搜索服务。</string>
-	<key>NSNetworkVolumesUsageDescription</key>
-	<string>MacEverything 需要访问网络卷以提供全盘极速搜索服务。</string>
-	<key>NSRemovableVolumesUsageDescription</key>
-	<string>MacEverything 需要访问外部磁盘以提供全盘极速搜索服务。</string>
 </dict>
 </plist>
 EOF
