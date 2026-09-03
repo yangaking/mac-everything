@@ -5,7 +5,8 @@ import AppKit
 actor IconCache {
     static let shared = IconCache()
     
-    private let cache: NSCache<NSString, NSImage>
+    // NSCache is thread-safe, so it can be read from the nonisolated accessor below.
+    nonisolated(unsafe) private let cache: NSCache<NSString, NSImage>
     
     private init() {
         self.cache = NSCache<NSString, NSImage>()
