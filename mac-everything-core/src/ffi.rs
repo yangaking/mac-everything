@@ -12,6 +12,49 @@ pub struct CSearchResult {
     pub count: usize,
 }
 
+/// Allocates a `CSearchResult` from Rust-owned strings.
+///
+/// Uses `into_boxed_slice` so the freed pointer always carries an exact
+/// `capacity == len` layout, eliminating the latent UB of reconstructing a
+/// `Vec` with an assumed capacity after `shrink_to_fit`.
+fn alloc_c_search_result(results: Vec<String>) -> *mut CSearchResult {
+    let c_strings: Vec<*mut c_char> = results
+        .into_iter()
+        .filter_map(|s| CString::new(s).ok())
+        .map(|cs| cs.into_raw())
+        .collect();
+
+    let boxed: Box<[*mut c_char]> = c_strings.into_boxed_slice();
+    let count = boxed.len();
+    let paths_ptr = boxed.as_ptr() as *mut *mut c_char;
+    std::mem::forget(boxed); // ownership handed to C
+
+    Box::into_raw(Box::new(CSearchResult {
+        paths: paths_ptr,
+        count,
+    }))
+}
+
+/// Frees a `CSearchResult` previously returned by `alloc_c_search_result`.
+///
+/// # Safety
+/// `res` must be a pointer obtained from `alloc_c_search_result` and not freed yet.
+unsafe fn free_c_search_result(res: *mut CSearchResult) {
+    if res.is_null() {
+        return;
+    }
+    let res = Box::from_raw(res);
+    // Reconstruct the exact boxed slice (capacity == len), then free each string.
+    let slice = std::ptr::slice_from_raw_parts_mut(res.paths, res.count);
+    let boxed: Box<[*mut c_char]> = Box::from_raw(slice);
+    for &ptr in boxed.iter() {
+        if !ptr.is_null() {
+            drop(CString::from_raw(ptr));
+        }
+    }
+    // `boxed` deallocates its buffer with the correct layout here.
+}
+
 #[no_mangle]
 pub extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count: usize) {
     if root_paths_ptr.is_null() || count == 0 {
@@ -78,25 +121,7 @@ pub extern "C" fn search(query_ptr: *const c_char, limit: usize, enable_path_sea
 
     if let Some(indexer) = INDEXER.get() {
         let results = indexer.search(query, limit, enable_path_search, sort_col, sort_asc);
-        
-        // Convert to C strings
-        let mut c_strings: Vec<*mut c_char> = results
-            .into_iter()
-            .filter_map(|s| CString::new(s).ok())
-            .map(|cs| cs.into_raw())
-            .collect();
-            
-        let count = c_strings.len();
-        c_strings.shrink_to_fit();
-        let paths_ptr = c_strings.as_mut_ptr();
-        std::mem::forget(c_strings); // Hand over memory management to C
-        
-        let result_struct = Box::new(CSearchResult {
-            paths: paths_ptr,
-            count,
-        });
-        
-        return Box::into_raw(result_struct);
+        return alloc_c_search_result(results);
     }
     
     std::ptr::null_mut()
@@ -104,19 +129,41 @@ pub extern "C" fn search(query_ptr: *const c_char, limit: usize, enable_path_sea
 
 #[no_mangle]
 pub extern "C" fn free_search_results(res_ptr: *mut CSearchResult) {
-    if res_ptr.is_null() {
-        return;
-    }
-    
-    unsafe {
-        let res = Box::from_raw(res_ptr);
-        // Free the array of strings
-        let paths_vec = Vec::from_raw_parts(res.paths, res.count, res.count);
-        for &ptr in paths_vec.iter() {
-            if !ptr.is_null() {
-                let _ = CString::from_raw(ptr); // Drops the CString
+    unsafe { free_c_search_result(res_ptr) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_c_search_result_round_trip() {
+        let paths = vec![
+            "/a/b.txt".to_string(),
+            "/c/d.pdf".to_string(),
+            "/e/f g.jpg".to_string(),
+        ];
+        let res = alloc_c_search_result(paths.clone());
+        assert!(!res.is_null());
+
+        unsafe {
+            assert_eq!((*res).count, paths.len());
+            let slice = std::slice::from_raw_parts((*res).paths, (*res).count);
+            for (i, &p) in slice.iter().enumerate() {
+                assert!(!p.is_null());
+                assert_eq!(CStr::from_ptr(p).to_str().unwrap(), paths[i]);
             }
+            free_c_search_result(res);
         }
-        // res Box is dropped here
+    }
+
+    #[test]
+    fn test_c_search_result_empty() {
+        let res = alloc_c_search_result(Vec::new());
+        assert!(!res.is_null());
+        unsafe {
+            assert_eq!((*res).count, 0);
+            free_c_search_result(res);
+        }
     }
 }
