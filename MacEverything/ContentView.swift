@@ -24,6 +24,11 @@ struct ContentView: View {
     @FocusState private var isSearchFocused: Bool
     @State private var isNavigatingList: Bool = false
     
+    // Search execution state (background execution + debounce + stale-result guard)
+    @State private var searchGeneration: Int = 0
+    @State private var searchDebounce: DispatchWorkItem? = nil
+    private static let searchQueue = DispatchQueue(label: "com.maceverything.search", qos: .userInitiated)
+    
     // Sort State (Default: Modified Time Descending)
     @State private var sortColumn: UInt8 = 3
     @State private var sortAscending: Bool = false
@@ -91,7 +96,7 @@ struct ContentView: View {
                             .font(.system(size: 18, weight: .regular))
                             .onChange(of: query) { newValue in
                                 isNavigatingList = false // Reset navigation state when typing
-                                performSearch(query: newValue)
+                                scheduleSearch(query: newValue)
                             }
                     }
                     
@@ -375,6 +380,9 @@ struct ContentView: View {
     }
     
     func performSearch(query: String) {
+        searchGeneration += 1
+        let myGeneration = searchGeneration
+
         if query.isEmpty {
             self.results = []
             self.selectedIndex = 0
@@ -390,12 +398,43 @@ struct ContentView: View {
         if let date = filterDate { finalQuery += " date:\(date)" }
         if let size = filterSize { finalQuery += " size:\(size)" }
         if !filterExts.isEmpty { finalQuery += " ext:\(filterExts.joined(separator: "|"))" }
-        
-        finalQuery.withCString { ptr in
-            if let resPtr = search(ptr, 100, settings.enablePathSearch, sortColumn, sortAscending) {
+
+        // Capture immutable inputs; the heavy search + metadata fetch run off the main thread.
+        let q = finalQuery
+        let enablePath = settings.enablePathSearch
+        let sc = sortColumn
+        let sa = sortAscending
+
+        Self.searchQueue.async {
+            let paths = self.runSearch(query: q, enablePath: enablePath, sortCol: sc, sortAsc: sa)
+            let items = self.fetchMetadata(for: paths)
+            DispatchQueue.main.async {
+                // Discard stale results if a newer query superseded this one.
+                guard self.searchGeneration == myGeneration else { return }
+                self.results = items
+                self.selectedIndex = 0
+            }
+        }
+    }
+
+    private func scheduleSearch(query: String) {
+        searchDebounce?.cancel()
+        if query.isEmpty {
+            performSearch(query: query)
+            return
+        }
+        let work = DispatchWorkItem {
+            self.performSearch(query: query)
+        }
+        searchDebounce = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
+    }
+
+    private func runSearch(query: String, enablePath: Bool, sortCol: UInt8, sortAsc: Bool) -> [String] {
+        var paths: [String] = []
+        query.withCString { ptr in
+            if let resPtr = search(ptr, 100, enablePath, sortCol, sortAsc) {
                 let count = resPtr.pointee.count
-                var paths = [String]()
-                
                 let buffer = UnsafeBufferPointer(start: resPtr.pointee.paths, count: count)
                 for i in 0..<count {
                     if let cString = buffer[i] {
@@ -403,17 +442,9 @@ struct ContentView: View {
                     }
                 }
                 free_search_results(resPtr)
-                
-                // Fetch metadata asynchronously
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let items = fetchMetadata(for: paths)
-                    DispatchQueue.main.async {
-                        self.results = items
-                        self.selectedIndex = 0
-                    }
-                }
             }
         }
+        return paths
     }
     
     func fetchMetadata(for paths: [String]) -> [FileItem] {
