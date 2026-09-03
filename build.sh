@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Ensure the Rust toolchain is on PATH (rustup installs to ~/.cargo/bin, which is
+# not always present in non-interactive shells / GUI-launched scripts).
+if [ -d "$HOME/.cargo/bin" ]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+fi
+
 echo "Stopping existing app..."
 killall MacEverything 2>/dev/null || true
 
