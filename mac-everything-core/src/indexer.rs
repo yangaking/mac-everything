@@ -611,6 +611,10 @@ impl Indexer {
 
     /// High-performance parallel search with scoring and sorting
     pub fn search(&self, query_string: &str, limit: usize, enable_path_search: bool, sort_col: u8, sort_asc: bool) -> Vec<String> {
+        if limit == 0 {
+            return Vec::new();
+        }
+
         let records = self.records.read().unwrap();
         let dir_paths = self.dir_paths.read().unwrap();
         let pool = self.string_pool.read().unwrap();
@@ -743,9 +747,9 @@ mod tests {
         let indexer = Indexer::new();
         indexer.scan_directories(&[root]);
 
-        // search "weixin" should rank weixin.txt (100) > 微信_wechat.txt (90 or 40)
-        let _results = indexer.search("weixin", 10, false, 0, false);
-        // assert_eq!(results[0], format!("{}/weixin.txt", root.to_string_lossy()));
+        // search "weixin" should rank weixin.txt (80) > 微信_wechat.txt (70) > weixing.txt (50)
+        let results = indexer.search("weixin", 10, false, 0, false);
+        assert_eq!(results[0], format!("{}/weixin.txt", root.to_string_lossy()));
         
         let results_pdf = indexer.search("ext:pdf 2000", 10, false, 0, false);
         assert_eq!(results_pdf.len(), 1, "Failed to find ext:pdf 2000");
@@ -780,5 +784,19 @@ mod tests {
         
         let res_new = indexer.search("new_file", 10, false, 0, false);
         assert_eq!(res_new.len(), 1, "new_file should be added");
+    }
+
+    #[test]
+    fn test_search_limit_zero_does_not_panic() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.txt"), "hello").unwrap();
+
+        let indexer = Indexer::new();
+        indexer.scan_directories(&[root]);
+
+        // limit == 0 must return an empty result set without underflowing
+        let res = indexer.search("a", 0, false, 0, false);
+        assert!(res.is_empty(), "limit==0 should yield no results");
     }
 }
