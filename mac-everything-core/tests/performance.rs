@@ -43,7 +43,11 @@ fn build_synthetic_index(n: usize) -> Indexer {
         let name = format!("report_{:07}.{}", i, ext);
         let name_lower = name.to_lowercase();
         let (ns, nl) = pool.add(&name);
-        let (nls, nll) = pool.add(&name_lower);
+        let (nls, nll) = if name_lower == name {
+            (ns, nl)
+        } else {
+            pool.add(&name_lower)
+        };
         records.push(FileRecord {
             size: (i as u64 + 1) * 1024,
             modified_time: 1_700_000_000 + i as u64,

@@ -178,7 +178,11 @@ impl Indexer {
                 }
 
                 let (name_start, name_len) = pool.add(&name_str);
-                let (name_lower_start, name_lower_len) = pool.add(&name_lower);
+                let (name_lower_start, name_lower_len) = if name_lower == name_str {
+                    (name_start, name_len)
+                } else {
+                    pool.add(&name_lower)
+                };
                 let (pinyin_start, pinyin_len) = if let Some(py) = pinyin_opt {
                     pool.add(&py)
                 } else {
@@ -315,7 +319,11 @@ impl Indexer {
             });
 
             let (name_start, name_len) = pool.add(&name_str);
-            let (name_lower_start, name_lower_len) = pool.add(&name_lower);
+            let (name_lower_start, name_lower_len) = if name_lower == name_str {
+                (name_start, name_len)
+            } else {
+                pool.add(&name_lower)
+            };
             let (pinyin_start, pinyin_len) = if let Some(py) = pinyin_opt {
                 pool.add(&py)
             } else {
@@ -453,7 +461,11 @@ impl Indexer {
         }
 
         let (name_start, name_len) = pool.add(&name_str);
-        let (name_lower_start, name_lower_len) = pool.add(&name_lower);
+        let (name_lower_start, name_lower_len) = if name_lower == name_str {
+            (name_start, name_len)
+        } else {
+            pool.add(&name_lower)
+        };
         let (pinyin_start, pinyin_len) = if let Some(py) = pinyin_opt {
             pool.add(&py)
         } else {
@@ -815,5 +827,24 @@ mod tests {
         assert!(!is_excluded(Path::new("/Users/x/Documents/a.txt"), "a.txt", 1));
         // The scan root itself (depth 0) is never excluded, even if hidden-named
         assert!(!is_excluded(Path::new("/tmp/.tmpABC"), ".tmpABC", 0));
+    }
+
+    #[test]
+    fn test_lowercase_name_dedup_reduces_pool() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("alllowercase.txt"), "x").unwrap();
+
+        let indexer = Indexer::new();
+        indexer.scan_directories(&[dir.path()]);
+
+        // For a fully-lowercase name, name_lower must alias name (no duplicate pool entry).
+        let records = indexer.records.read().unwrap();
+        let pool = indexer.string_pool.read().unwrap();
+        let file_record = records
+            .iter()
+            .find(|r| pool.get(r.name_start, r.name_len) == "alllowercase.txt")
+            .expect("file record should exist");
+        assert_eq!(file_record.name_start, file_record.name_lower_start);
+        assert_eq!(file_record.name_len, file_record.name_lower_len);
     }
 }
