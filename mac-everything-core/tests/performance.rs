@@ -140,7 +140,7 @@ fn benchmark_persistence_1m() {
     let load_ms = t.elapsed().as_millis();
 
     println!("\n=== MacEverything persistence benchmark (N={N}) ===");
-    println!("index file size: {size_mb:.1} MB (target <50MB)");
+    println!("index file size: {size_mb:.1} MB (informational)");
     println!("save: {save_ms} ms");
     println!("cold-start load: {load_ms} ms (target <500ms)");
 
