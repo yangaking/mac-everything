@@ -76,12 +76,12 @@ pub extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count: usize
         // Fast cold start: try loading a persisted snapshot; fall back to a full scan.
         let snapshot = crate::persist::default_snapshot_path()
             .and_then(|p| crate::persist::load_indexer(&p).ok());
-        let (indexer, needs_save) = match snapshot {
-            Some(idx) => (idx, false),
+        let (indexer, was_loaded) = match snapshot {
+            Some(idx) => (idx, true),
             None => {
                 let idx = Indexer::new();
                 idx.scan_directories(&roots);
-                (idx, true)
+                (idx, false)
             }
         };
         // The load path does not persist roots; restore them for the rebuild logic.
@@ -89,16 +89,21 @@ pub extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count: usize
 
         // Ignore initialization error if it was already initialized
         if INDEXER.set(indexer).is_ok() {
-            // Persist a freshly-scanned index in the background (no-op on snapshot load).
-            if needs_save {
-                std::thread::spawn(|| {
-                    if let Some(p) = crate::persist::default_snapshot_path() {
-                        if let Some(idx) = INDEXER.get() {
-                            let _ = crate::persist::save_indexer(idx, &p);
-                        }
+            // Reconcile offline changes and persist the index in the background.
+            // The heavy walk runs without holding locks; only the final swap locks
+            // briefly, so searches keep serving the (possibly stale) snapshot until
+            // reconciliation completes.
+            let reconcile_roots = roots.clone();
+            std::thread::spawn(move || {
+                if let Some(idx) = INDEXER.get() {
+                    if was_loaded {
+                        idx.scan_directories(&reconcile_roots);
                     }
-                });
-            }
+                    if let Some(p) = crate::persist::default_snapshot_path() {
+                        let _ = crate::persist::save_indexer(idx, &p);
+                    }
+                }
+            });
 
             // Start FSEventMonitor here in background
             let mut monitor = crate::fsevents::FsEventMonitor::new();

@@ -98,13 +98,20 @@ pub fn load_indexer(path: &Path) -> io::Result<Indexer> {
     r.read_exact(&mut buffer)?;
     let pool = StringPool { buffer };
 
-    // FileRecord array
-    let mut record_bytes = vec![0u8; record_bytes_total];
-    r.read_exact(&mut record_bytes)?;
-    let records: Vec<FileRecord> = unsafe {
-        let src = record_bytes.as_ptr() as *const FileRecord;
-        std::slice::from_raw_parts(src, record_count).to_vec()
+    // FileRecord array: read directly into an aligned Vec<FileRecord> buffer.
+    // FileRecord is #[repr(C)] with only POD fields (u64/u32/u16/u8), so any
+    // fully-read byte pattern is a valid value.
+    let mut records: Vec<FileRecord> = Vec::with_capacity(record_count);
+    let record_bytes = unsafe {
+        std::slice::from_raw_parts_mut(
+            records.as_mut_ptr() as *mut u8,
+            record_count * record_size,
+        )
     };
+    r.read_exact(record_bytes)?;
+    unsafe {
+        records.set_len(record_count);
+    }
 
     // Directory paths
     let mut dir_paths = Vec::with_capacity(dir_count);

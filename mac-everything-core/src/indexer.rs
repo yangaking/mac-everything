@@ -54,6 +54,22 @@ pub struct FileRecord {
     pub is_dir: u8,
 }
 
+/// Shared path filter: returns true if the path should be excluded from the index.
+///
+/// Excludes hidden entries (at depth > 0) and non-CloudStorage `~/Library`
+/// internals (caches, containers) so they stay out of both the initial scan and
+/// hot updates. A scan root (depth 0) is never excluded.
+fn is_excluded(path: &Path, file_name: &str, depth: usize) -> bool {
+    if depth > 0 && file_name.starts_with('.') {
+        return true;
+    }
+    let p_str = path.to_string_lossy();
+    if p_str.contains("/Library/") && !p_str.contains("/Library/CloudStorage") {
+        return true;
+    }
+    false
+}
+
 pub struct Indexer {
     pub records: RwLock<Vec<FileRecord>>,
     pub dir_paths: RwLock<Vec<String>>,
@@ -104,26 +120,10 @@ impl Indexer {
                 let depth = entry.depth();
                 let is_dir = entry.file_type().is_dir();
                 
-                // Skip hidden files/directories
-                if depth > 0 && file_name.starts_with('.') {
+                // Skip hidden files/directories and Library internals (shared filter).
+                if is_excluded(path, &file_name, depth) {
                     if is_dir { it.skip_current_dir(); }
                     continue;
-                }
-                
-                let p_str = path.to_string_lossy();
-                
-                // Robust filtering for redundant Cloud Storage virtual maps and internal Library caches
-                if p_str.contains("/Library/") {
-                    // Only allow CloudStorage within Library to prevent huge cache indexing
-                    if !p_str.contains("/Library/CloudStorage") {
-                        if is_dir { it.skip_current_dir(); }
-                        continue;
-                    }
-                    // Prevent any leakage into Group Containers
-                    if p_str.contains("/Group Containers/") {
-                        if is_dir { it.skip_current_dir(); }
-                        continue;
-                    }
                 }
                 
                 // Treat .app bundles as files and do NOT descend into them
@@ -256,7 +256,7 @@ impl Indexer {
                 Some(n) => n.to_string_lossy(),
                 None => continue,
             };
-            if file_name.starts_with('.') { continue; }
+            if is_excluded(&path, &file_name, 1) { continue; }
             
             if let Ok(metadata) = std::fs::symlink_metadata(&path) {
                 let size = metadata.len();
@@ -798,5 +798,22 @@ mod tests {
         // limit == 0 must return an empty result set without underflowing
         let res = indexer.search("a", 0, false, 0, false);
         assert!(res.is_empty(), "limit==0 should yield no results");
+    }
+
+    #[test]
+    fn test_is_excluded_filter() {
+        use std::path::Path;
+
+        // Hidden entries at depth > 0 are excluded
+        assert!(is_excluded(Path::new("/Users/x/.hidden"), ".hidden", 1));
+        // Library internals (non-cloud) are excluded
+        assert!(is_excluded(Path::new("/Users/x/Library/Caches/foo"), "foo", 1));
+        assert!(is_excluded(Path::new("/Users/x/Library/Group Containers/a"), "a", 1));
+        // Cloud storage mirrors are allowed
+        assert!(!is_excluded(Path::new("/Users/x/Library/CloudStorage/OneDrive/f"), "f", 1));
+        // Normal files are allowed
+        assert!(!is_excluded(Path::new("/Users/x/Documents/a.txt"), "a.txt", 1));
+        // The scan root itself (depth 0) is never excluded, even if hidden-named
+        assert!(!is_excluded(Path::new("/tmp/.tmpABC"), ".tmpABC", 0));
     }
 }
