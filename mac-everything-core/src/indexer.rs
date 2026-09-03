@@ -557,7 +557,7 @@ impl Indexer {
     }
 
     /// Evaluates a query node against a file record and returns a matching score
-    fn evaluate_node_scored(node: &crate::query_parser::QueryNode, record: &FileRecord, pool: &StringPool, dir_paths: &[String], enable_path_search: bool) -> Option<i32> {
+    fn evaluate_node_scored(node: &crate::query_parser::QueryNode, record: &FileRecord, pool: &StringPool, dir_paths: &[String], enable_path_search: bool, now: u64) -> Option<i32> {
         use crate::query_parser::{QueryNode, SizeOp, DateOp};
         let name_lower = pool.get(record.name_lower_start, record.name_lower_len);
         
@@ -630,14 +630,16 @@ impl Indexer {
                 match op {
                     SizeOp::Gt(val) => if record.size > *val { Some(10) } else { None },
                     SizeOp::Lt(val) => if record.size < *val { Some(10) } else { None },
+                    SizeOp::Eq(val) => if record.size == *val { Some(10) } else { None },
                 }
             },
             QueryNode::Date(op) => {
-                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
                 let one_day = 86400;
                 match op {
                     DateOp::Today => if record.modified_time + one_day > now { Some(10) } else { None },
                     DateOp::Yesterday => if record.modified_time + one_day * 2 > now && record.modified_time + one_day <= now { Some(10) } else { None },
+                    DateOp::ThisWeek => if record.modified_time + one_day * 7 > now { Some(10) } else { None },
+                    DateOp::ThisMonth => if record.modified_time + one_day * 30 > now { Some(10) } else { None },
                     DateOp::Gt(val) => if record.modified_time > *val { Some(10) } else { None },
                     DateOp::Lt(val) => if record.modified_time < *val { Some(10) } else { None },
                 }
@@ -661,7 +663,7 @@ impl Indexer {
             QueryNode::And(nodes) => {
                 let mut sum = 0;
                 for n in nodes {
-                    if let Some(score) = Self::evaluate_node_scored(n, record, pool, dir_paths, enable_path_search) {
+                    if let Some(score) = Self::evaluate_node_scored(n, record, pool, dir_paths, enable_path_search, now) {
                         sum += score;
                     } else {
                         return None;
@@ -672,7 +674,7 @@ impl Indexer {
             QueryNode::Or(nodes) => {
                 let mut max = None;
                 for n in nodes {
-                    if let Some(score) = Self::evaluate_node_scored(n, record, pool, dir_paths, enable_path_search) {
+                    if let Some(score) = Self::evaluate_node_scored(n, record, pool, dir_paths, enable_path_search, now) {
                         match max {
                             Some(v) => if score > v { max = Some(score); },
                             None => max = Some(score),
@@ -682,12 +684,13 @@ impl Indexer {
                 max
             },
             QueryNode::Not(node) => {
-                if Self::evaluate_node_scored(node, record, pool, dir_paths, enable_path_search).is_none() {
+                if Self::evaluate_node_scored(node, record, pool, dir_paths, enable_path_search, now).is_none() {
                     Some(0)
                 } else {
                     None
                 }
             },
+            QueryNode::NoMatch => None,
         }
     }
 
@@ -702,12 +705,13 @@ impl Indexer {
         let pool = self.string_pool.read().unwrap();
         
         let query_ast = crate::query_parser::QueryParser::parse(query_string);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
         
         // Multi-threaded parallel iterator via Rayon
         let mut matched_records: Vec<(i32, FileRecord, bool)> = records
             .par_iter()
             .filter_map(|&r| {
-                if let Some(score) = Self::evaluate_node_scored(&query_ast, &r, &pool, &dir_paths, enable_path_search) {
+                if let Some(score) = Self::evaluate_node_scored(&query_ast, &r, &pool, &dir_paths, enable_path_search, now) {
                     let name_lower = pool.get(r.name_lower_start, r.name_lower_len);
                     let is_app = name_lower.ends_with(".app");
                     Some((score, r, is_app))
@@ -964,5 +968,57 @@ mod tests {
 
         assert_eq!(indexer.search("alpha_file", 10, false, 0, false).len(), 0);
         assert_eq!(indexer.search("beta_file", 10, false, 0, false).len(), 0);
+    }
+
+    #[test]
+    fn test_invalid_regex_returns_empty() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("report.txt"), "x").unwrap();
+
+        let indexer = Indexer::new();
+        indexer.scan_directories(&[dir.path()]);
+
+        // An invalid regex must yield no results, not match everything.
+        let res = indexer.search("regex:[invalid", 100, false, 0, false);
+        assert!(res.is_empty(), "invalid regex should match nothing, got {:?}", res);
+    }
+
+    #[test]
+    fn test_size_exact_match() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("ten_kb.bin"), vec![0u8; 10240]).unwrap();
+        fs::write(dir.path().join("small.txt"), "x").unwrap();
+
+        let indexer = Indexer::new();
+        indexer.scan_directories(&[dir.path()]);
+
+        let res = indexer.search("size:10kb", 100, false, 0, false);
+        assert!(res.iter().any(|p| p.ends_with("ten_kb.bin")), "expected ten_kb.bin, got {:?}", res);
+        assert!(!res.iter().any(|p| p.ends_with("small.txt")), "small.txt should not match size:10kb");
+    }
+
+    #[test]
+    fn test_thisweek_matches_recent_file() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("recent_file.txt"), "x").unwrap();
+
+        let indexer = Indexer::new();
+        indexer.scan_directories(&[dir.path()]);
+
+        let res = indexer.search("date:thisweek", 100, false, 0, false);
+        assert!(res.iter().any(|p| p.ends_with("recent_file.txt")), "recent file should match thisweek");
+    }
+
+    #[test]
+    fn test_regex_shorthand_case_insensitive() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("README.txt"), "x").unwrap();
+
+        let indexer = Indexer::new();
+        indexer.scan_directories(&[dir.path()]);
+
+        // /readme/ must match README.txt case-insensitively (consistent with regex:).
+        let res = indexer.search("/readme/", 100, false, 0, false);
+        assert!(res.iter().any(|p| p.ends_with("README.txt")), "expected README.txt, got {:?}", res);
     }
 }
