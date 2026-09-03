@@ -40,12 +40,16 @@ impl StringPool {
     }
 }
 
-/// Highly compact memory representation of a file (40 bytes total)
+/// Highly compact memory representation of a file (32 bytes total).
+///
+/// `size` is stored in KiB (u32, up to 4 TiB); `modified_time` is seconds since
+/// the Unix epoch (u32, valid until 2106). This keeps the record cache-friendly
+/// while supporting multi-terabyte files.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FileRecord {
-    pub size: u64,
-    pub modified_time: u64,
+    pub size: u32,
+    pub modified_time: u32,
     pub name_start: u32,
     pub name_lower_start: u32,
     pub pinyin_start: u32,
@@ -199,8 +203,8 @@ impl Indexer {
                 };
 
                 records.push(FileRecord {
-                    size,
-                    modified_time,
+                    size: size.div_ceil(1024) as u32,
+                    modified_time: modified_time as u32,
                     name_start,
                     name_lower_start,
                     pinyin_start,
@@ -356,8 +360,8 @@ impl Indexer {
             };
 
             new_records.push(crate::indexer::FileRecord {
-                size,
-                modified_time,
+                size: size.div_ceil(1024) as u32,
+                modified_time: modified_time as u32,
                 name_start,
                 name_lower_start,
                 pinyin_start,
@@ -541,21 +545,24 @@ impl Indexer {
                 }
             },
             QueryNode::Size(op) => {
+                // record.size is stored in KiB; query values are in bytes.
+                let size_bytes = record.size as u64 * 1024;
                 match op {
-                    SizeOp::Gt(val) => if record.size > *val { Some(10) } else { None },
-                    SizeOp::Lt(val) => if record.size < *val { Some(10) } else { None },
-                    SizeOp::Eq(val) => if record.size == *val { Some(10) } else { None },
+                    SizeOp::Gt(val) => if size_bytes > *val { Some(10) } else { None },
+                    SizeOp::Lt(val) => if size_bytes < *val { Some(10) } else { None },
+                    SizeOp::Eq(val) => if size_bytes == *val { Some(10) } else { None },
                 }
             },
             QueryNode::Date(op) => {
-                let one_day = 86400;
+                let one_day = 86400u64;
+                let mtime = record.modified_time as u64;
                 match op {
-                    DateOp::Today => if record.modified_time + one_day > now { Some(10) } else { None },
-                    DateOp::Yesterday => if record.modified_time + one_day * 2 > now && record.modified_time + one_day <= now { Some(10) } else { None },
-                    DateOp::ThisWeek => if record.modified_time + one_day * 7 > now { Some(10) } else { None },
-                    DateOp::ThisMonth => if record.modified_time + one_day * 30 > now { Some(10) } else { None },
-                    DateOp::Gt(val) => if record.modified_time > *val { Some(10) } else { None },
-                    DateOp::Lt(val) => if record.modified_time < *val { Some(10) } else { None },
+                    DateOp::Today => if mtime + one_day > now { Some(10) } else { None },
+                    DateOp::Yesterday => if mtime + one_day * 2 > now && mtime + one_day <= now { Some(10) } else { None },
+                    DateOp::ThisWeek => if mtime + one_day * 7 > now { Some(10) } else { None },
+                    DateOp::ThisMonth => if mtime + one_day * 30 > now { Some(10) } else { None },
+                    DateOp::Gt(val) => if mtime > *val { Some(10) } else { None },
+                    DateOp::Lt(val) => if mtime < *val { Some(10) } else { None },
                 }
             },
             QueryNode::Kind(kind) => {

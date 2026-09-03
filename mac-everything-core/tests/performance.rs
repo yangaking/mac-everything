@@ -49,8 +49,8 @@ fn build_synthetic_index(n: usize) -> Indexer {
             pool.add(&name_lower)
         };
         records.push(FileRecord {
-            size: (i as u64 + 1) * 1024,
-            modified_time: 1_700_000_000 + i as u64,
+            size: i as u32 + 1, // KiB
+            modified_time: 1_700_000_000 + i as u32,
             name_start: ns,
             name_lower_start: nls,
             pinyin_start: 0,
