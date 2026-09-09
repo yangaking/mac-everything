@@ -60,9 +60,8 @@ pub struct FileRecord {
 /// (cloud mirrors, chat-app downloads). Everything else under `~/Library`
 /// (caches, logs, preferences, app sandboxes) is excluded to keep the index small.
 ///
-/// Prefixes are matched as substrings, so the WeChat "Application Support" entry
-/// also covers the containerized 3.x layout
-/// (`.../Containers/com.tencent.xinWeChat/Data/Library/Application Support/...`).
+/// Entries are matched against the `/Library/...` suffix of a path, and any
+/// ancestor directory of an entry is also allowed so the walker descends into it.
 const ALLOWED_LIBRARY_PREFIXES: &[&str] = &[
     "/Library/CloudStorage",
     // WeChat for Mac 4.0 (xwechat): received/exported files under xwechat_files.
@@ -70,6 +69,29 @@ const ALLOWED_LIBRARY_PREFIXES: &[&str] = &[
     // WeChat for Mac 3.x: message media/files under Application Support.
     "/Library/Application Support/com.tencent.xinWeChat",
 ];
+
+/// Returns true when `path` equals `prefix` or is a child of `prefix` (the byte
+/// after the prefix is `/`). Allocation-free and ASCII-safe.
+fn path_is_at_or_under(path: &str, prefix: &str) -> bool {
+    let (p, q) = (path.as_bytes(), prefix.as_bytes());
+    p.len() >= q.len() && &p[..q.len()] == q && (p.len() == q.len() || p[q.len()] == b'/')
+}
+
+/// Decides whether a path under `~/Library` should be indexed.
+///
+/// A path is allowed if it is at/under an allowlisted location, OR if it is an
+/// ancestor directory of an allowlisted location — so the walker descends into
+/// `~/Library/Containers` / `~/Library/Application Support` instead of skipping
+/// the whole subtree before ever reaching the WeChat files.
+fn is_allowlisted_library_path(p_str: &str) -> bool {
+    let Some(idx) = p_str.find("/Library/") else {
+        return true; // not under ~/Library at all → not excluded here
+    };
+    let suffix = &p_str[idx..];
+    ALLOWED_LIBRARY_PREFIXES
+        .iter()
+        .any(|a| path_is_at_or_under(suffix, a) || path_is_at_or_under(a, suffix))
+}
 
 /// Shared path filter: returns true if the path should be excluded from the index.
 ///
@@ -81,9 +103,7 @@ fn is_excluded(path: &Path, file_name: &str, depth: usize) -> bool {
         return true;
     }
     let p_str = path.to_string_lossy();
-    if p_str.contains("/Library/")
-        && !ALLOWED_LIBRARY_PREFIXES.iter().any(|p| p_str.contains(p))
-    {
+    if p_str.contains("/Library/") && !is_allowlisted_library_path(&p_str) {
         return true;
     }
     false
@@ -837,18 +857,60 @@ mod tests {
         assert!(!is_excluded(
             Path::new("/Users/x/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/abc/Message/MessageTemp/file.doc"),
             "file.doc", 9));
-        // WeChat 3.x containerized layout is allowed (substring hits the App Support prefix)
-        assert!(!is_excluded(
-            Path::new("/Users/x/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/abc/Message/MessageTemp/a.png"),
-            "a.png", 11));
         // WeChat internal caches/logs are still excluded (keeps the index small)
         assert!(is_excluded(
             Path::new("/Users/x/Library/Containers/com.tencent.xinWeChat/Data/Library/Caches/com.tencent.xinWeChat/cache.bin"),
             "cache.bin", 6));
+        // Ancestor directories of allowlisted paths must NOT be excluded, so the
+        // walker descends into them (regression: Containers was skipped as a whole).
+        assert!(!is_excluded(Path::new("/Users/x/Library/Containers"), "Containers", 2));
+        assert!(!is_excluded(Path::new("/Users/x/Library/Application Support"), "Application Support", 2));
+        // ...but other containers/apps under those ancestors are still excluded.
+        assert!(is_excluded(Path::new("/Users/x/Library/Containers/com.apple.Safari"), "com.apple.Safari", 3));
+        assert!(is_excluded(Path::new("/Users/x/Library/Application Support/com.other.app"), "com.other.app", 3));
         // Normal files are allowed
         assert!(!is_excluded(Path::new("/Users/x/Documents/a.txt"), "a.txt", 1));
         // The scan root itself (depth 0) is never excluded, even if hidden-named
         assert!(!is_excluded(Path::new("/tmp/.tmpABC"), ".tmpABC", 0));
+    }
+
+    #[test]
+    fn test_wechat_files_indexed_via_library_containers() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        // Simulate the real ~/Library layout: WeChat files live deep under
+        // Library/Containers/com.tencent.xinWeChat/... and MUST be indexed.
+        let wechat_file = root
+            .join("Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/mysingle_a9ba/msg/file/2026-09")
+            .join("quarter_report.pdf");
+        fs::create_dir_all(wechat_file.parent().unwrap()).unwrap();
+        fs::write(&wechat_file, "x").unwrap();
+
+        // A different app container and a cache dir that MUST stay excluded.
+        let other = root.join("Library/Containers/com.apple.Safari/some/cache.bin");
+        fs::create_dir_all(other.parent().unwrap()).unwrap();
+        fs::write(&other, "y").unwrap();
+        let cache = root.join("Library/Caches/com.apple.foo/cache.bin");
+        fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        fs::write(&cache, "z").unwrap();
+
+        let indexer = Indexer::new();
+        indexer.scan_directories(&[root]);
+
+        let hits = indexer.search("quarter_report", 10, false, 0, false);
+        assert!(
+            hits.iter().any(|p| p.ends_with("quarter_report.pdf")),
+            "WeChat file under Library/Containers must be indexed, got: {:?}",
+            hits
+        );
+
+        let cache_hits = indexer.search("cache.bin", 10, false, 0, false);
+        assert!(
+            cache_hits.is_empty(),
+            "non-WeChat Library internals must stay excluded, got: {:?}",
+            cache_hits
+        );
     }
 
     #[test]
