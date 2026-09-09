@@ -19,6 +19,11 @@ struct ContentView: View {
     @State private var selectedIndex: Int = 0
     @State private var hoverIndex: Int? = nil
     
+    // Multi-selection state
+    @State private var selectedPaths: Set<String> = []
+    @State private var lastClickHadCommand = false
+    @State private var lastClickHadShift = false
+    
     // QuickLook state
     @State private var previewURL: URL? = nil
     @FocusState private var isSearchFocused: Bool
@@ -242,8 +247,10 @@ struct ContentView: View {
                                     index: index,
                                     item: item,
                                     query: query,
-                                    isSelected: selectedIndex == index,
-                                    isHovered: hoverIndex == index
+                                    isSelected: selectedPaths.contains(item.path),
+                                    isCurrent: selectedIndex == index,
+                                    isHovered: hoverIndex == index,
+                                    onToggleSelection: { toggleSelection(path: item.path, index: index) }
                                 )
                                 .id(index)
                                 .onHover { hovering in
@@ -253,9 +260,17 @@ struct ContentView: View {
                                     openFile(at: item.path)
                                 }
                                 .onTapGesture(count: 1) {
-                                    selectedIndex = index
-                                    isSearchFocused = true
-                                    isNavigatingList = true
+                                    handleRowClick(index: index)
+                                }
+                                .contextMenu {
+                                    Button("打开") { openFiles(selectionForContextMenu(itemPath: item.path)) }
+                                    Button("在访达中显示") { FileBatchOperations.revealFiles(selectionForContextMenu(itemPath: item.path)) }
+                                    Divider()
+                                    Button("复制文件") { FileBatchOperations.copyFiles(selectionForContextMenu(itemPath: item.path)) }
+                                    Button("拷贝路径") { FileBatchOperations.copyPaths(selectionForContextMenu(itemPath: item.path)) }
+                                    Divider()
+                                    Button("移到废纸篓") { trashFiles(selectionForContextMenu(itemPath: item.path)) }
+                                    Button("打印") { printSelected(selectionForContextMenu(itemPath: item.path)) }
                                 }
                             }
                         }
@@ -291,6 +306,18 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                     
                     Spacer()
+                    
+                    if !selectedPaths.isEmpty {
+                        Text("已选 \(selectedPaths.count) 项")
+                            .font(.system(size: 11))
+                            .foregroundColor(.accentColor)
+                        Button("清除") {
+                            clearSelection()
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    }
                     
                     Text("\(results.count) \(results.count >= 100 ? "+" : "") items")
                         .font(.system(size: 11))
@@ -386,6 +413,7 @@ struct ContentView: View {
         if query.isEmpty {
             self.results = []
             self.selectedIndex = 0
+            self.selectedPaths = []
             return
         }
         
@@ -413,6 +441,7 @@ struct ContentView: View {
                 guard self.searchGeneration == myGeneration else { return }
                 self.results = items
                 self.selectedIndex = 0
+                self.selectedPaths = []
             }
         }
     }
@@ -496,6 +525,9 @@ struct ContentView: View {
     
     private func setupKeyboardMonitor() {
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            // Record modifier keys so row clicks can distinguish Cmd/Shift multi-select.
+            self.lastClickHadCommand = event.modifierFlags.contains(.command)
+            self.lastClickHadShift = event.modifierFlags.contains(.shift)
             if let window = event.window {
                 let location = event.locationInWindow
                 let distanceFromTop = window.frame.height - location.y
@@ -510,6 +542,8 @@ struct ContentView: View {
         
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let keyCode = event.keyCode
+            let cmd = event.modifierFlags.contains(.command)
+            let shift = event.modifierFlags.contains(.shift)
             
             // ESC
             if keyCode == 53 {
@@ -521,8 +555,8 @@ struct ContentView: View {
                 return nil
             }
             
-            // Cmd + Number (1-9)
-            if event.modifierFlags.contains(.command),
+            // Cmd + Number (1-9): open the nth result
+            if cmd && !shift,
                let char = event.charactersIgnoringModifiers?.first,
                let num = Int(String(char)),
                num >= 1 && num <= 9 {
@@ -533,15 +567,49 @@ struct ContentView: View {
                 return nil
             }
             
-            // Cmd + C (Copy file if navigating list)
-            if event.modifierFlags.contains(.command) && keyCode == 8 {
-                if self.isNavigatingList {
-                    if selectedIndex < results.count {
-                        let path = results[selectedIndex].path
-                        let pasteboard = NSPasteboard.general
-                        pasteboard.clearContents()
-                        pasteboard.writeObjects([URL(fileURLWithPath: path) as NSURL])
-                    }
+            // Batch operations only apply when the result list is the active context.
+            let listContext = self.isNavigatingList || !self.selectedPaths.isEmpty
+            
+            // Cmd + A: select all results (list context only; otherwise text select-all)
+            if cmd && !shift && keyCode == 0 {
+                if listContext {
+                    self.selectAll()
+                    return nil
+                }
+            }
+            
+            // Cmd + Shift + C: copy paths
+            if cmd && shift && keyCode == 8 {
+                if listContext {
+                    let paths = self.effectiveSelection()
+                    if !paths.isEmpty { FileBatchOperations.copyPaths(paths) }
+                    return nil
+                }
+            }
+            
+            // Cmd + C: copy files
+            if cmd && !shift && keyCode == 8 {
+                if listContext {
+                    let paths = self.effectiveSelection()
+                    if !paths.isEmpty { FileBatchOperations.copyFiles(paths) }
+                    return nil
+                }
+            }
+            
+            // Cmd + Delete: move to trash
+            if cmd && keyCode == 51 {
+                if listContext {
+                    let paths = self.effectiveSelection()
+                    if !paths.isEmpty { self.trashFiles(paths) }
+                    return nil
+                }
+            }
+            
+            // Cmd + P: print
+            if cmd && !shift && keyCode == 35 {
+                if listContext {
+                    let paths = self.effectiveSelection()
+                    if !paths.isEmpty { self.printSelected(paths) }
                     return nil
                 }
             }
@@ -564,25 +632,25 @@ struct ContentView: View {
                 }
                 return nil
             }
-            // Enter
+            // Enter: open (Cmd+Enter: reveal in Finder)
             else if keyCode == 36 {
                 if self.isEditingFilter {
                     return event
                 }
                 
-                if selectedIndex < results.count {
-                    let path = results[selectedIndex].path
-                    if event.modifierFlags.contains(.command) {
-                        revealInFinder(at: path)
+                let paths = self.effectiveSelection()
+                if !paths.isEmpty {
+                    if cmd {
+                        FileBatchOperations.revealFiles(paths)
                     } else {
-                        openFile(at: path)
+                        self.openFiles(paths)
                     }
                 }
                 return nil
             }
             // Space (for QuickLook)
             else if keyCode == 49 {
-                if isNavigatingList || event.modifierFlags.contains(.command) {
+                if isNavigatingList || cmd {
                     if selectedIndex < results.count {
                         if previewURL != nil {
                             previewURL = nil
@@ -605,6 +673,113 @@ struct ContentView: View {
     private func revealInFinder(at path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
+    
+    // MARK: - Multi-select & batch operations
+    
+    private func handleRowClick(index: Int) {
+        guard index < results.count else { return }
+        let path = results[index].path
+        if lastClickHadCommand {
+            // Toggle membership in the multi-selection.
+            if selectedPaths.contains(path) {
+                selectedPaths.remove(path)
+            } else {
+                selectedPaths.insert(path)
+            }
+            selectedIndex = index
+        } else if lastClickHadShift, selectedIndex < results.count {
+            // Range-select from the current anchor to the clicked row.
+            let range = FileBatchOperations.rangeIndices(from: selectedIndex, to: index)
+            selectedPaths = Set(results[range].map { $0.path })
+        } else {
+            // Plain click: collapse to a single selection.
+            selectedPaths = [path]
+            selectedIndex = index
+        }
+        isNavigatingList = true
+        isSearchFocused = true
+        lastClickHadCommand = false
+        lastClickHadShift = false
+    }
+    
+    private func toggleSelection(path: String, index: Int) {
+        if selectedPaths.contains(path) {
+            selectedPaths.remove(path)
+        } else {
+            selectedPaths.insert(path)
+        }
+        selectedIndex = index
+        isNavigatingList = true
+    }
+    
+    private func clearSelection() {
+        selectedPaths = []
+    }
+    
+    private func selectAll() {
+        selectedPaths = Set(results.map { $0.path })
+    }
+    
+    private func inOrderSelection() -> [String] {
+        results.filter { selectedPaths.contains($0.path) }.map { $0.path }
+    }
+    
+    private func effectiveSelection() -> [String] {
+        if !selectedPaths.isEmpty {
+            return inOrderSelection()
+        }
+        if selectedIndex >= 0 && selectedIndex < results.count {
+            return [results[selectedIndex].path]
+        }
+        return []
+    }
+    
+    private func selectionForContextMenu(itemPath: String) -> [String] {
+        if selectedPaths.contains(itemPath) && !selectedPaths.isEmpty {
+            return inOrderSelection()
+        }
+        return [itemPath]
+    }
+    
+    private func openFiles(_ paths: [String]) {
+        guard !paths.isEmpty else { return }
+        if paths.count > 20 {
+            let alert = NSAlert()
+            alert.messageText = "打开 \(paths.count) 个文件？"
+            alert.informativeText = "同时打开大量文件可能让系统变慢。"
+            alert.addButton(withTitle: "打开")
+            alert.addButton(withTitle: "取消")
+            if alert.runModal() != .alertFirstButtonReturn { return }
+        }
+        FileBatchOperations.openFiles(paths)
+    }
+    
+    private func trashFiles(_ paths: [String]) {
+        guard !paths.isEmpty else { return }
+        FileBatchOperations.moveToTrash(paths)
+        clearSelection()
+        performSearch(query: query)
+    }
+    
+    private func printSelected(_ paths: [String]) {
+        let printable = paths.filter { FileBatchOperations.isPrintable(path: $0) }
+        let skipped = paths.count - printable.count
+        guard !printable.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "无法打印"
+            alert.informativeText = "所选文件没有可打印的格式（仅支持图片和 PDF）。"
+            alert.runModal()
+            return
+        }
+        let result = FileBatchOperations.printFiles(printable)
+        let totalSkipped = skipped + result.skipped
+        if totalSkipped > 0 {
+            let alert = NSAlert()
+            alert.messageText = "打印完成"
+            alert.informativeText = "已发送 \(result.printed) 个文件到打印机，跳过 \(totalSkipped) 个不支持的文件。"
+            alert.runModal()
+        }
+    }
 }
 
 
@@ -615,12 +790,22 @@ struct ResultRowView: View {
     let item: FileItem
     let query: String
     let isSelected: Bool
+    let isCurrent: Bool
     let isHovered: Bool
+    let onToggleSelection: () -> Void
     
     var body: some View {
         HStack(spacing: 16) {
-            // Name Column (Icon + Highlighted Text)
+            // Name Column (Checkbox + Icon + Highlighted Text)
             HStack(spacing: 12) {
+                Button(action: onToggleSelection) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 15))
+                        .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.5))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help(isSelected ? "取消选择" : "选择")
+                
                 AsyncIconView(path: item.path)
                     .frame(width: 24, height: 24)
                 
@@ -674,26 +859,11 @@ struct ResultRowView: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(isSelected ? Color.blue.opacity(0.6) : (isHovered ? Color.white.opacity(0.05) : Color.clear))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isCurrent ? Color.accentColor.opacity(0.7) : Color.clear, lineWidth: 1.5)
+        )
         .contentShape(Rectangle())
-        .contextMenu {
-            Button("打开") {
-                NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
-            }
-            Button("在访达中显示") {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
-            }
-            Divider()
-            Button("复制文件") {
-                let pasteboard = NSPasteboard.general
-                pasteboard.clearContents()
-                pasteboard.writeObjects([URL(fileURLWithPath: item.path) as NSURL])
-            }
-            Button("拷贝路径") {
-                let pasteboard = NSPasteboard.general
-                pasteboard.clearContents()
-                pasteboard.setString(item.path, forType: .string)
-            }
-        }
     }
     
     // Highlight logic

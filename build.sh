@@ -76,12 +76,14 @@ swiftc \
     MacEverything/QuickLookHelper.swift \
     MacEverything/IconCache.swift \
     MacEverything/PermissionView.swift \
+    MacEverything/FileBatchOperations.swift \
     mac-everything-core/target/release/libmac_everything_core.a \
     -target $(uname -m)-apple-macosx12.0 \
     -I MacEverything \
     -framework SwiftUI \
     -framework AppKit \
     -framework Quartz \
+    -framework PDFKit \
     -o build/MacEverything.app/Contents/MacOS/MacEverything
 
 # Signing. Default is ad-hoc (`-`), which is sufficient for personal/open-source
