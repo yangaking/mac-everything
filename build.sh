@@ -45,9 +45,9 @@ cat << 'EOF' > build/MacEverything.app/Contents/Info.plist
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.6</string>
+	<string>0.1.7</string>
 	<key>CFBundleVersion</key>
-	<string>3</string>
+	<string>4</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
 	<key>NSHighResolutionCapable</key>
@@ -103,17 +103,5 @@ if [ "${NOTARIZE:-0}" = "1" ]; then
     xcrun stapler staple build/MacEverything.app
     rm -f build/MacEverything.zip
 fi
-
-# Force Finder to refresh the icon cache (Bulletproof method via NSWorkspace)
-cat << 'EOF' > set_icon_build.swift
-import Cocoa
-let appPath = "build/MacEverything.app"
-let iconPath = "build/MacEverything.app/Contents/Resources/AppIcon.icns"
-if let image = NSImage(contentsOfFile: iconPath) {
-    _ = NSWorkspace.shared.setIcon(image, forFile: appPath, options: [])
-}
-EOF
-swift set_icon_build.swift
-rm set_icon_build.swift
 
 echo "Build complete! App is located at build/MacEverything.app"

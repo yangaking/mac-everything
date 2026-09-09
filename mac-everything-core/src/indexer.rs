@@ -56,9 +56,24 @@ pub struct FileRecord {
     pub is_dir: u8,
 }
 
+/// Paths under `~/Library` that hold user-visible files and must stay indexed
+/// (cloud mirrors, chat-app downloads). Everything else under `~/Library`
+/// (caches, logs, preferences, app sandboxes) is excluded to keep the index small.
+///
+/// Prefixes are matched as substrings, so the WeChat "Application Support" entry
+/// also covers the containerized 3.x layout
+/// (`.../Containers/com.tencent.xinWeChat/Data/Library/Application Support/...`).
+const ALLOWED_LIBRARY_PREFIXES: &[&str] = &[
+    "/Library/CloudStorage",
+    // WeChat for Mac 4.0 (xwechat): received/exported files under xwechat_files.
+    "/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files",
+    // WeChat for Mac 3.x: message media/files under Application Support.
+    "/Library/Application Support/com.tencent.xinWeChat",
+];
+
 /// Shared path filter: returns true if the path should be excluded from the index.
 ///
-/// Excludes hidden entries (at depth > 0) and non-CloudStorage `~/Library`
+/// Excludes hidden entries (at depth > 0) and non-allowlisted `~/Library`
 /// internals (caches, containers) so they stay out of both the initial scan and
 /// hot updates. A scan root (depth 0) is never excluded.
 fn is_excluded(path: &Path, file_name: &str, depth: usize) -> bool {
@@ -66,7 +81,9 @@ fn is_excluded(path: &Path, file_name: &str, depth: usize) -> bool {
         return true;
     }
     let p_str = path.to_string_lossy();
-    if p_str.contains("/Library/") && !p_str.contains("/Library/CloudStorage") {
+    if p_str.contains("/Library/")
+        && !ALLOWED_LIBRARY_PREFIXES.iter().any(|p| p_str.contains(p))
+    {
         return true;
     }
     false
@@ -806,11 +823,28 @@ mod tests {
 
         // Hidden entries at depth > 0 are excluded
         assert!(is_excluded(Path::new("/Users/x/.hidden"), ".hidden", 1));
-        // Library internals (non-cloud) are excluded
+        // Library internals (non-allowlisted) are excluded
         assert!(is_excluded(Path::new("/Users/x/Library/Caches/foo"), "foo", 1));
         assert!(is_excluded(Path::new("/Users/x/Library/Group Containers/a"), "a", 1));
+        assert!(is_excluded(Path::new("/Users/x/Library/Preferences/com.apple.foo.plist"), "com.apple.foo.plist", 1));
         // Cloud storage mirrors are allowed
         assert!(!is_excluded(Path::new("/Users/x/Library/CloudStorage/OneDrive/f"), "f", 1));
+        // WeChat received files are allowed: 4.0 (xwechat) container layout
+        assert!(!is_excluded(
+            Path::new("/Users/x/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/mysingle_a9ba/msg/file/2026-09/report.pdf"),
+            "report.pdf", 11));
+        // WeChat 3.x direct Application Support layout is allowed
+        assert!(!is_excluded(
+            Path::new("/Users/x/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/abc/Message/MessageTemp/file.doc"),
+            "file.doc", 9));
+        // WeChat 3.x containerized layout is allowed (substring hits the App Support prefix)
+        assert!(!is_excluded(
+            Path::new("/Users/x/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/abc/Message/MessageTemp/a.png"),
+            "a.png", 11));
+        // WeChat internal caches/logs are still excluded (keeps the index small)
+        assert!(is_excluded(
+            Path::new("/Users/x/Library/Containers/com.tencent.xinWeChat/Data/Library/Caches/com.tencent.xinWeChat/cache.bin"),
+            "cache.bin", 6));
         // Normal files are allowed
         assert!(!is_excluded(Path::new("/Users/x/Documents/a.txt"), "a.txt", 1));
         // The scan root itself (depth 0) is never excluded, even if hidden-named
