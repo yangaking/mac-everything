@@ -21,12 +21,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         setupStatusBar()
         registerGlobalHotkey()
         
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(handleWake),
-            name: NSWorkspace.didWakeNotification,
-            object: nil
-        )
+        // Recover the Carbon hotkey after the system OR a display wakes from
+        // sleep (display sleep does not post didWakeNotification).
+        let workspaceNC = NSWorkspace.shared.notificationCenter
+        workspaceNC.addObserver(self, selector: #selector(handleWake), name: NSWorkspace.didWakeNotification, object: nil)
+        workspaceNC.addObserver(self, selector: #selector(handleWake), name: NSWorkspace.screensDidWakeNotification, object: nil)
         
         // Check for updates automatically on launch (after a brief delay)
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
@@ -289,10 +288,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     
     @objc func handleWake(_ notification: Notification) {
-        // Carbon event handlers can sometimes become unresponsive after a deep system sleep.
-        // Re-registering the hotkey ensures it binds to the active event dispatcher.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.registerGlobalHotkey()
+        // Carbon hotkeys and their dispatcher handler can go stale after the
+        // system or a display wakes from sleep. Recover immediately, then again
+        // shortly after in case the system wasn't fully resumed yet.
+        HotKeyManager.shared.reinstallAll()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            HotKeyManager.shared.reinstallAll()
         }
     }
     
