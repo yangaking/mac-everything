@@ -14,6 +14,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var lastHideTime: Date?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Shorten the hover-tooltip delay (system default ~1.5s) so full
+        // filenames appear quickly when hovering a result row.
+        UserDefaults.standard.set(0.3, forKey: "NSInitialToolTipDelay")
+
         setupMenu()
         setupSearchWindow()
         setupSettingsWindow()

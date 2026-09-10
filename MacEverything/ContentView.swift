@@ -523,6 +523,19 @@ struct ContentView: View {
     
     // MARK: - Keyboard Actions
     
+    /// Returns true when an input method (IME) is actively composing text in the
+    /// focused field (i.e. it has uncommitted "marked text").
+    private func isComposingText() -> Bool {
+        guard let responder = NSApp.keyWindow?.firstResponder else { return false }
+        if let textView = responder as? NSTextView {
+            return textView.hasMarkedText()
+        }
+        if let textField = responder as? NSTextField {
+            return (textField.currentEditor() as? NSTextView)?.hasMarkedText() ?? false
+        }
+        return false
+    }
+    
     private func setupKeyboardMonitor() {
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
             // Record modifier keys so row clicks can distinguish Cmd/Shift multi-select.
@@ -541,6 +554,12 @@ struct ContentView: View {
         }
         
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // While an input method (IME) is composing, let every key through so
+            // Enter/space/arrows commit & navigate candidates instead of being
+            // stolen by the list shortcuts (e.g. Enter opening the selected file).
+            if self.isComposingText() {
+                return event
+            }
             let keyCode = event.keyCode
             let cmd = event.modifierFlags.contains(.command)
             let shift = event.modifierFlags.contains(.shift)
