@@ -69,7 +69,7 @@ pub fn load_indexer(path: &Path) -> io::Result<Indexer> {
     let mut header = [0u8; HEADER_LEN];
     r.read_exact(&mut header)?;
 
-    if &header[0..8] != &MAGIC {
+    if header[0..8] != MAGIC {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "index: bad magic"));
     }
     let version = u32::from_le_bytes(header[8..12].try_into().unwrap());
@@ -89,7 +89,7 @@ pub fn load_indexer(path: &Path) -> io::Result<Indexer> {
     let min_body = pool_len
         .checked_add(record_bytes_total)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "index: body size overflow"))?;
-    if HEADER_LEN.checked_add(min_body).map_or(true, |m| m > file_len) {
+    if HEADER_LEN.checked_add(min_body).is_none_or(|m| m > file_len) {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "index: header sizes exceed file length"));
     }
 
@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn test_load_rejects_out_of_range_parent() {
         // Build an index with a record whose parent_id points past dir_paths.
-        let mut indexer = Indexer::new();
+        let indexer = Indexer::new();
         let mut pool = StringPool::new();
         let (ns, nl) = pool.add("a.txt");
         let (nls, nll) = pool.add("a.txt");

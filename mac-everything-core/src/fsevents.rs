@@ -48,6 +48,12 @@ impl FsEventMonitor {
     }
 }
 
+impl Default for FsEventMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Maps a notify event kind to the appropriate indexer hot event.
 ///
 /// On macOS, FSEvents cannot associate the old and new sides of a rename (see

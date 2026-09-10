@@ -40,6 +40,12 @@ impl StringPool {
     }
 }
 
+impl Default for StringPool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Highly compact memory representation of a file (40 bytes total)
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -111,7 +117,7 @@ fn is_excluded(path: &Path, file_name: &str, depth: usize) -> bool {
 
 /// Builds a `full_pinyin\0initial_pinyin` string for a name, or `None` for pure-ASCII names.
 fn build_pinyin(name: &str) -> Option<String> {
-    if !name.chars().any(|c| !c.is_ascii()) {
+    if name.is_ascii() {
         return None;
     }
     let mut full_py = String::new();
@@ -143,6 +149,12 @@ pub struct Indexer {
     pub pending_events: Mutex<Vec<HotEvent>>,
     pub roots: RwLock<Vec<String>>,
     pub wasted_bytes: Mutex<usize>,
+}
+
+impl Default for Indexer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Indexer {
@@ -536,10 +548,8 @@ impl Indexer {
                 
                 // Extra points for precise suffix match (e.g. searching "pdf" matching ".pdf")
                 if let Some(dot_idx) = name_lower.rfind('.') {
-                    if &name_lower[dot_idx + 1..] == s {
-                        if best_score.is_none() || best_score.unwrap() < 75 {
-                            best_score = Some(75);
-                        }
+                    if &name_lower[dot_idx + 1..] == s && (best_score.is_none() || best_score.unwrap() < 75) {
+                        best_score = Some(75);
                     }
                 }
                 
@@ -614,11 +624,7 @@ impl Indexer {
             QueryNode::And(nodes) => {
                 let mut sum = 0;
                 for n in nodes {
-                    if let Some(score) = Self::evaluate_node_scored(n, record, pool, dir_paths, enable_path_search, now) {
-                        sum += score;
-                    } else {
-                        return None;
-                    }
+                    sum += Self::evaluate_node_scored(n, record, pool, dir_paths, enable_path_search, now)?;
                 }
                 Some(sum)
             },
@@ -717,8 +723,8 @@ impl Indexer {
                 },
                 4 => {
                     // Kind (Extension)
-                    let ext_a = name_lower_a.split('.').last().unwrap_or("");
-                    let ext_b = name_lower_b.split('.').last().unwrap_or("");
+                    let ext_a = name_lower_a.rsplit('.').next().unwrap_or("");
+                    let ext_b = name_lower_b.rsplit('.').next().unwrap_or("");
                     let cmp = if sort_asc {
                         ext_a.cmp(ext_b)
                     } else {

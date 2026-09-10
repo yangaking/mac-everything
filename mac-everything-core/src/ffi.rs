@@ -55,8 +55,14 @@ unsafe fn free_c_search_result(res: *mut CSearchResult) {
     // `boxed` deallocates its buffer with the correct layout here.
 }
 
+/// Initializes the global index engine (loads a snapshot or scans) and starts
+/// background reconciliation, FSEvents, debounce, and periodic rescan threads.
+///
+/// # Safety
+/// `root_paths_ptr` must point to an array of `count` valid NUL-terminated
+/// C strings (or be null when `count == 0`).
 #[no_mangle]
-pub extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count: usize) {
+pub unsafe extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count: usize) {
     if root_paths_ptr.is_null() || count == 0 {
         return;
     }
@@ -143,14 +149,19 @@ pub extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count: usize
     }
 }
 
-pub fn enqueue_fsevent(event: crate::indexer::HotEvent) {
+pub(crate) fn enqueue_fsevent(event: crate::indexer::HotEvent) {
     if let Some(indexer) = INDEXER.get() {
         indexer.enqueue_event(event);
     }
 }
 
+/// Runs a query against the global index, returning a boxed `CSearchResult`
+/// (free it with `free_search_results`).
+///
+/// # Safety
+/// `query_ptr` must be a valid NUL-terminated C string.
 #[no_mangle]
-pub extern "C" fn search(query_ptr: *const c_char, limit: usize, enable_path_search: bool, sort_col: u8, sort_asc: bool) -> *mut CSearchResult {
+pub unsafe extern "C" fn search(query_ptr: *const c_char, limit: usize, enable_path_search: bool, sort_col: u8, sort_asc: bool) -> *mut CSearchResult {
     if query_ptr.is_null() {
         return std::ptr::null_mut();
     }
@@ -169,8 +180,12 @@ pub extern "C" fn search(query_ptr: *const c_char, limit: usize, enable_path_sea
     std::ptr::null_mut()
 }
 
+/// Frees a `CSearchResult` previously returned by `search`.
+///
+/// # Safety
+/// `res_ptr` must have been returned by a prior `search` call and not freed yet.
 #[no_mangle]
-pub extern "C" fn free_search_results(res_ptr: *mut CSearchResult) {
+pub unsafe extern "C" fn free_search_results(res_ptr: *mut CSearchResult) {
     unsafe { free_c_search_result(res_ptr) };
 }
 

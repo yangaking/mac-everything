@@ -689,10 +689,6 @@ struct ContentView: View {
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
     
-    private func revealInFinder(at path: String) {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-    }
-    
     // MARK: - Multi-select & batch operations
     
     private func handleRowClick(index: Int) {

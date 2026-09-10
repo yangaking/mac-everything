@@ -166,15 +166,15 @@ impl QueryParser {
 
         let mut multiplier = 1u64;
         let mut num_str = num_part;
-        if num_part.ends_with("kb") {
+        if let Some(n) = num_part.strip_suffix("kb") {
             multiplier = 1024;
-            num_str = &num_part[..num_part.len() - 2];
-        } else if num_part.ends_with("mb") {
+            num_str = n;
+        } else if let Some(n) = num_part.strip_suffix("mb") {
             multiplier = 1024 * 1024;
-            num_str = &num_part[..num_part.len() - 2];
-        } else if num_part.ends_with("gb") {
+            num_str = n;
+        } else if let Some(n) = num_part.strip_suffix("gb") {
             multiplier = 1024 * 1024 * 1024;
-            num_str = &num_part[..num_part.len() - 2];
+            num_str = n;
         }
 
         if let Ok(val) = num_str.parse::<f64>() {
