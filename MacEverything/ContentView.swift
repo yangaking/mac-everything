@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var query: String = ""
     @State private var results: [FileItem] = []
     @State private var isIndexing = true
+    @State private var engineStatus: UInt8 = 1
     @State private var selectedIndex: Int = 0
     @State private var hoverIndex: Int? = nil
     
@@ -53,6 +54,19 @@ struct ContentView: View {
     @State private var hasFDA: Bool = PermissionManager.hasFullDiskAccess()
     
     @ObservedObject var settings = AppSettings.shared
+    
+    // Derived status-bar state (0 ready / 1 scanning / 2 hot-updating).
+    private var isScanning: Bool { isIndexing || engineStatus == 1 }
+    private var statusText: String {
+        if isScanning { return "索引中..." }
+        if engineStatus == 2 { return "热更新中..." }
+        return "就绪"
+    }
+    private var statusColor: Color {
+        if isScanning { return .orange }
+        if engineStatus == 2 { return .blue }
+        return .green
+    }
     
     var body: some View {
         ZStack {
@@ -296,12 +310,12 @@ struct ContentView: View {
                 // Status Bar
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(isIndexing ? Color.orange : Color.green)
+                        .fill(statusColor)
                         .frame(width: 8, height: 8)
-                        .opacity(isIndexing ? 0.8 : 1.0)
-                        .animation(isIndexing ? Animation.easeInOut(duration: 0.8).repeatForever() : .default, value: isIndexing)
+                        .opacity(isScanning ? 0.8 : 1.0)
+                        .animation(isScanning ? Animation.easeInOut(duration: 0.8).repeatForever() : .default, value: isScanning)
                     
-                    Text(isIndexing ? "更新中..." : "索引已就绪")
+                    Text(statusText)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     
@@ -319,7 +333,7 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                     }
                     
-                    Text("\(results.count) \(results.count >= 100 ? "+" : "") items")
+                    Text("\(results.count) \(results.count >= settings.maxResults ? "+" : "") 项")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -357,6 +371,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ClearSearchQuery"))) { _ in
             self.query = ""
+        }
+        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
+            engineStatus = engine_status()
         }
     }
     
@@ -462,7 +479,7 @@ struct ContentView: View {
     private func runSearch(query: String, enablePath: Bool, sortCol: UInt8, sortAsc: Bool) -> [String] {
         var paths: [String] = []
         query.withCString { ptr in
-            if let resPtr = search(ptr, 100, enablePath, sortCol, sortAsc) {
+            if let resPtr = search(ptr, settings.maxResults, enablePath, sortCol, sortAsc) {
                 let count = resPtr.pointee.count
                 let buffer = UnsafeBufferPointer(start: resPtr.pointee.paths, count: count)
                 for i in 0..<count {

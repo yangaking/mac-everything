@@ -39,7 +39,7 @@ cat << 'EOF' > build/MacEverything.app/Contents/Info.plist
 	<key>CFBundleExecutable</key>
 	<string>MacEverything</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.example.MacEverything.v2</string>
+	<string>com.yangaking.maceverything</string>
 	<key>CFBundleName</key>
 	<string>MacEverything</string>
 	<key>CFBundlePackageType</key>
@@ -80,6 +80,7 @@ swiftc \
     mac-everything-core/target/release/libmac_everything_core.a \
     -target $(uname -m)-apple-macosx12.0 \
     -I MacEverything \
+    -module-cache-path build/.modulecache \
     -framework SwiftUI \
     -framework AppKit \
     -framework Quartz \

@@ -1,74 +1,74 @@
 import SwiftUI
 import Quartz
 
-
-class QuickLookHelper: NSView, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
-    
-    // Using a callback to notify SwiftUI when the panel is closed by the user
+/// Manages a `QLPreviewPanel` using the modern dataSource/delegate API.
+///
+/// The deprecated responder-chain control methods (`acceptsPreviewPanelControl`,
+/// `beginPreviewPanelControl`, `endPreviewPanelControl`) are no longer used; the
+/// panel's data source and delegate are assigned directly instead.
+final class QuickLookHelper: NSView, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    /// Invoked when the user closes the Quick Look panel manually.
     var onPanelClosed: (() -> Void)?
-    
-    private var reloadWorkItem: DispatchWorkItem?
-    
+    private var closeObserver: NSObjectProtocol?
+
     var previewURL: URL? {
         didSet {
-            if let panel = QLPreviewPanel.shared(), panel.isVisible {
-                reloadWorkItem?.cancel()
-                let item = DispatchWorkItem {
-                    if panel.isVisible {
-                        panel.reloadData()
-                    }
-                }
-                reloadWorkItem = item
-                // 50ms debounce for smoother scrolling
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: item)
-            }
+            guard let panel = QLPreviewPanel.shared(), panel.isVisible else { return }
+            panel.reloadData()
         }
     }
-    
-    // We must accept first responder so that QLPreviewPanel can find us in the responder chain
-    override var acceptsFirstResponder: Bool {
-        return true
-    }
-    
-    // MARK: - QLPreviewPanel Responder Chain Methods
-    
-    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
-        return true
-    }
-    
-    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        panel.delegate = self
-        panel.dataSource = self
-    }
-    
-    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        panel.delegate = nil
-        panel.dataSource = nil
-    }
-    
+
     // MARK: - QLPreviewPanelDataSource
-    
+
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-        return previewURL == nil ? 0 : 1
+        previewURL == nil ? 0 : 1
     }
-    
+
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
-        return previewURL as NSURL?
+        previewURL as NSURL?
     }
-    
-    // MARK: - QLPreviewPanelDelegate
-    
-    func windowWillClose(_ notification: Notification) {
-        // When the QuickLook window is closed manually (e.g. by clicking the close button or pressing space while focused on QL)
-        if let panel = notification.object as? QLPreviewPanel, panel == QLPreviewPanel.shared() {
-            onPanelClosed?()
+
+    // MARK: - Panel control
+
+    /// Shows the Quick Look panel for `url`, or hides it when `url` is nil.
+    func present(_ url: URL?) {
+        previewURL = url
+        guard let panel = QLPreviewPanel.shared() else { return }
+
+        if url != nil {
+            panel.dataSource = self
+            panel.delegate = self
+            if !panel.isVisible {
+                panel.makeKeyAndOrderFront(nil)
+            } else {
+                panel.reloadData()
+            }
+            observeClose(of: panel)
+        } else if panel.isVisible {
+            panel.orderOut(nil)
+        }
+    }
+
+    private func observeClose(of panel: QLPreviewPanel) {
+        guard closeObserver == nil else { return }
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            if let observer = self.closeObserver {
+                NotificationCenter.default.removeObserver(observer)
+                self.closeObserver = nil
+            }
+            self.onPanelClosed?()
         }
     }
 }
 
 struct QuickLookViewRepresentable: NSViewRepresentable {
     @Binding var previewURL: URL?
-    
+
     func makeNSView(context: Context) -> QuickLookHelper {
         let view = QuickLookHelper()
         view.onPanelClosed = {
@@ -78,27 +78,8 @@ struct QuickLookViewRepresentable: NSViewRepresentable {
         }
         return view
     }
-    
+
     func updateNSView(_ nsView: QuickLookHelper, context: Context) {
-        // Synchronize state
-        nsView.previewURL = previewURL
-        
-        DispatchQueue.main.async {
-            guard let panel = QLPreviewPanel.shared() else { return }
-            
-            if previewURL != nil {
-                // If it's not visible, show it
-                if !panel.isVisible {
-                    // Make this view first responder so QLPreviewPanel uses it
-                    nsView.window?.makeFirstResponder(nsView)
-                    panel.makeKeyAndOrderFront(nil)
-                }
-            } else {
-                // If it's visible but we have no URL, close it
-                if panel.isVisible {
-                    panel.orderOut(nil)
-                }
-            }
-        }
+        nsView.present(previewURL)
     }
 }

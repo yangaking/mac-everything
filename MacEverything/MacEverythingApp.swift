@@ -102,22 +102,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu(title: "MacEverything")
-        appMenu.addItem(withTitle: "About MacEverything", action: #selector(showAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: "关于 MacEverything", action: #selector(showAbout), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "Hide MacEverything", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "隐藏 MacEverything", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "Quit MacEverything", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "退出 MacEverything", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         
-        let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        let editMenuItem = NSMenuItem(title: "编辑", action: nil, keyEquivalent: "")
         let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(withTitle: "Undo", action: #selector(UndoManager.undo), keyEquivalent: "z")
-        editMenu.addItem(withTitle: "Redo", action: #selector(UndoManager.redo), keyEquivalent: "Z")
+        editMenu.addItem(withTitle: "撤销", action: #selector(UndoManager.undo), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "重做", action: #selector(UndoManager.redo), keyEquivalent: "Z")
         editMenu.addItem(NSMenuItem.separator())
-        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
@@ -171,7 +171,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             backing: .buffered, defer: false)
         
         aboutWindow.center()
-        aboutWindow.title = "About MacEverything"
+        aboutWindow.title = "关于 MacEverything"
         aboutWindow.contentView = NSHostingView(rootView: aboutView)
         aboutWindow.isReleasedWhenClosed = false
     }
@@ -198,22 +198,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let menu = NSMenu()
             
             // Regex toggle item
-            let regexItem = NSMenuItem(title: "Enable Regex Search", action: #selector(toggleRegex), keyEquivalent: "r")
+            let regexItem = NSMenuItem(title: "启用正则搜索", action: #selector(toggleRegex), keyEquivalent: "r")
             regexItem.state = AppSettings.shared.enableRegexDefault ? .on : .off
             menu.addItem(regexItem)
             
             // Path search toggle item
-            let pathItem = NSMenuItem(title: "开启/关闭路径搜索", action: #selector(togglePathSearch), keyEquivalent: "p")
+            let pathItem = NSMenuItem(title: "切换路径搜索", action: #selector(togglePathSearch), keyEquivalent: "p")
             pathItem.state = AppSettings.shared.enablePathSearch ? .on : .off
             menu.addItem(pathItem)
             
             menu.addItem(NSMenuItem.separator())
             menu.addItem(NSMenuItem(title: "查询语法帮助...", action: #selector(showHelpDoc), keyEquivalent: "h"))
-            menu.addItem(NSMenuItem(title: "Check for Updates...", action: #selector(checkUpdates), keyEquivalent: "u"))
-            menu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
-            menu.addItem(NSMenuItem(title: "About MacEverything", action: #selector(showAbout), keyEquivalent: ""))
+            menu.addItem(NSMenuItem(title: "检查更新...", action: #selector(checkUpdates), keyEquivalent: "u"))
+            menu.addItem(NSMenuItem(title: "设置...", action: #selector(showSettings), keyEquivalent: ","))
+            menu.addItem(NSMenuItem(title: "关于 MacEverything", action: #selector(showAbout), keyEquivalent: ""))
             menu.addItem(NSMenuItem.separator())
-            menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+            menu.addItem(NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
             
             statusItem.menu = menu
             statusItem.button?.performClick(nil) // trigger menu
@@ -270,11 +270,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         if !success && AppSettings.shared.hotkeyCode != 0 {
             let alert = NSAlert()
-            alert.messageText = "Hotkey Conflict"
-            alert.informativeText = "The global hotkey is already used by another application or macOS Spotlight. Please go to Settings to change it."
+            alert.messageText = "热键冲突"
+            alert.informativeText = "该全局热键已被其它应用或 macOS Spotlight 占用，请到设置中修改。"
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open Settings")
-            alert.addButton(withTitle: "Ignore")
+            alert.addButton(withTitle: "打开设置")
+            alert.addButton(withTitle: "忽略")
             
             if alert.runModal() == .alertFirstButtonReturn {
                 showSettings()

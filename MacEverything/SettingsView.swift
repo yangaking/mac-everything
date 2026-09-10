@@ -17,6 +17,10 @@ class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(searchCacheTimeoutMinutes, forKey: "searchCacheTimeoutMinutes") }
     }
     
+    @Published var maxResults: Int {
+        didSet { UserDefaults.standard.set(maxResults, forKey: "maxResults") }
+    }
+    
     // Global Toggle Hotkey
     @Published var hotkeyCode: UInt32 {
         didSet { UserDefaults.standard.set(Int(hotkeyCode), forKey: "hotkeyCode") }
@@ -67,6 +71,13 @@ class AppSettings: ObservableObject {
             self.searchCacheTimeoutMinutes = UserDefaults.standard.integer(forKey: "searchCacheTimeoutMinutes")
         }
         
+        let savedMaxResults = UserDefaults.standard.object(forKey: "maxResults")
+        if savedMaxResults == nil {
+            self.maxResults = 100
+        } else {
+            self.maxResults = UserDefaults.standard.integer(forKey: "maxResults")
+        }
+        
         let savedCode = UserDefaults.standard.integer(forKey: "hotkeyCode")
         let savedMods = UserDefaults.standard.integer(forKey: "hotkeyModifiers")
         
@@ -78,7 +89,7 @@ class AppSettings: ObservableObject {
         } else {
             self.hotkeyCode = UInt32(savedCode)
             self.hotkeyModifiers = UInt32(savedMods)
-            self.hotkeyString = UserDefaults.standard.string(forKey: "hotkeyString") ?? "Custom"
+            self.hotkeyString = UserDefaults.standard.string(forKey: "hotkeyString") ?? "自定义"
         }
         
         // Regex defaults (Cmd+R)
@@ -92,7 +103,7 @@ class AppSettings: ObservableObject {
         } else {
             self.regexHotkeyCode = UInt32(savedRegexCode)
             self.regexHotkeyModifiers = UInt32(savedRegexMods)
-            self.regexHotkeyString = savedRegexString ?? "Not Set"
+            self.regexHotkeyString = savedRegexString ?? "未设置"
         }
         
         // Path defaults (Cmd+P)
@@ -106,7 +117,7 @@ class AppSettings: ObservableObject {
         } else {
             self.pathHotkeyCode = UInt32(savedPathCode)
             self.pathHotkeyModifiers = UInt32(savedPathMods)
-            self.pathHotkeyString = savedPathString ?? "Not Set"
+            self.pathHotkeyString = savedPathString ?? "未设置"
         }
     }
 }
@@ -118,12 +129,12 @@ struct SettingsView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Settings")
+            Text("设置")
                 .font(.largeTitle)
                 .bold()
             
-            Toggle("Enable Regex Search by default", isOn: $settings.enableRegexDefault)
-            Toggle("Enable Path Search by default", isOn: $settings.enablePathSearch)
+            Toggle("默认启用正则搜索", isOn: $settings.enableRegexDefault)
+            Toggle("默认启用路径搜索", isOn: $settings.enablePathSearch)
             
             HStack {
                 Text("保持上次搜索结果时长 (分钟):")
@@ -136,14 +147,21 @@ struct SettingsView: View {
                 }
             }
             
+            HStack {
+                Text("最大结果数:")
+                Stepper(value: $settings.maxResults, in: 50...1000, step: 50) {
+                    Text("\(settings.maxResults)")
+                }
+            }
+            
             Divider()
             
-            Text("Shortcuts")
+            Text("快捷键")
                 .font(.headline)
             
-            hotkeyRow(title: "Global Toggle Window:", id: 1, keyString: settings.hotkeyString)
-            hotkeyRow(title: "Local Toggle Regex:", id: 2, keyString: settings.regexHotkeyString)
-            hotkeyRow(title: "Local Toggle Path:", id: 3, keyString: settings.pathHotkeyString)
+            hotkeyRow(title: "全局显示/隐藏窗口:", id: 1, keyString: settings.hotkeyString)
+            hotkeyRow(title: "切换正则模式:", id: 2, keyString: settings.regexHotkeyString)
+            hotkeyRow(title: "切换路径搜索:", id: 3, keyString: settings.pathHotkeyString)
             
             Spacer()
         }
@@ -166,13 +184,13 @@ struct SettingsView: View {
                     startRecording(id: id)
                 }
             }) {
-                Text(recordingId == id ? "Press any key combination..." : keyString)
+                Text(recordingId == id ? "按下任意组合键..." : keyString)
                     .frame(width: 200)
             }
             .buttonStyle(BorderedButtonStyle())
             
-            if recordingId != id && keyString != "Not Set" {
-                Button("Clear") {
+            if recordingId != id && keyString != "未设置" {
+                Button("清除") {
                     clearHotkey(id: id)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -183,11 +201,11 @@ struct SettingsView: View {
     
     private func clearHotkey(id: UInt32) {
         if id == 1 {
-            settings.hotkeyCode = 0; settings.hotkeyModifiers = 0; settings.hotkeyString = "Not Set"
+            settings.hotkeyCode = 0; settings.hotkeyModifiers = 0; settings.hotkeyString = "未设置"
         } else if id == 2 {
-            settings.regexHotkeyCode = 0; settings.regexHotkeyModifiers = 0; settings.regexHotkeyString = "Not Set"
+            settings.regexHotkeyCode = 0; settings.regexHotkeyModifiers = 0; settings.regexHotkeyString = "未设置"
         } else if id == 3 {
-            settings.pathHotkeyCode = 0; settings.pathHotkeyModifiers = 0; settings.pathHotkeyString = "Not Set"
+            settings.pathHotkeyCode = 0; settings.pathHotkeyModifiers = 0; settings.pathHotkeyString = "未设置"
         }
         _ = HotKeyManager.shared.registerGlobalHotKey(id: id, keyCode: 0, modifierFlags: 0)
     }

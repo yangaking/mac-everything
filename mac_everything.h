@@ -13,5 +13,6 @@ typedef struct {
 void init_engine(const char** root_paths, size_t count);
 CSearchResult* search(const char* query, size_t limit, bool enable_path_search, uint8_t sort_col, bool sort_asc);
 void free_search_results(CSearchResult* res);
+uint8_t engine_status(void);
 
 #endif /* mac_everything_h */

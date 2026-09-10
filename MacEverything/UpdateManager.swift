@@ -16,14 +16,14 @@ class UpdateManager {
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 if manual {
-                    self.showAlert(title: "Update Check Failed", message: error.localizedDescription)
+                    self.showAlert(title: "检查更新失败", message: error.localizedDescription)
                 }
                 return
             }
             
             guard let data = data else {
                 if manual {
-                    self.showAlert(title: "Update Check Failed", message: "No data received from GitHub.")
+                    self.showAlert(title: "检查更新失败", message: "未从 GitHub 收到数据。")
                 }
                 return
             }
@@ -42,15 +42,15 @@ class UpdateManager {
                         self.showUpdateAlert(latestVersion: tagName)
                     } else {
                         if manual {
-                            self.showAlert(title: "Up to Date", message: "You are running the latest version (\(currentVersion)).")
+                            self.showAlert(title: "已是最新版本", message: "你正在使用最新版本（\(currentVersion)）。")
                         }
                     }
                 } else if manual {
-                    self.showAlert(title: "Update Check Failed", message: "Invalid response from GitHub API.")
+                    self.showAlert(title: "检查更新失败", message: "GitHub API 返回无效响应。")
                 }
             } catch {
                 if manual {
-                    self.showAlert(title: "Update Check Failed", message: "Could not parse update data.")
+                    self.showAlert(title: "检查更新失败", message: "无法解析更新数据。")
                 }
             }
         }
@@ -63,7 +63,7 @@ class UpdateManager {
             alert.messageText = title
             alert.informativeText = message
             alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "好")
             // Ensure app is active so alert is visible
             NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
@@ -73,11 +73,11 @@ class UpdateManager {
     private func showUpdateAlert(latestVersion: String) {
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "Update Available"
-            alert.informativeText = "A new version (\(latestVersion)) of MacEverything is available! Would you like to download it?"
+            alert.messageText = "发现新版本"
+            alert.informativeText = "MacEverything 有新版本（\(latestVersion)）！是否前往下载？"
             alert.alertStyle = .informational
-            alert.addButton(withTitle: "Download")
-            alert.addButton(withTitle: "Later")
+            alert.addButton(withTitle: "下载")
+            alert.addButton(withTitle: "稍后")
             
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertFirstButtonReturn {

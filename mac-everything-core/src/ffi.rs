@@ -1,10 +1,14 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use crate::indexer::Indexer;
 
 // Global singleton for the indexer
 static INDEXER: OnceLock<Indexer> = OnceLock::new();
+
+/// True while a full scan (initial/reconcile/periodic) is running.
+static ENGINE_SCANNING: AtomicBool = AtomicBool::new(false);
 
 #[repr(C)]
 pub struct CSearchResult {
@@ -86,7 +90,9 @@ pub unsafe extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count
             Some(idx) => (idx, true),
             None => {
                 let idx = Indexer::new();
+                ENGINE_SCANNING.store(true, Ordering::Relaxed);
                 idx.scan_directories(&roots);
+                ENGINE_SCANNING.store(false, Ordering::Relaxed);
                 (idx, false)
             }
         };
@@ -103,7 +109,9 @@ pub unsafe extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count
             std::thread::spawn(move || {
                 if let Some(idx) = INDEXER.get() {
                     if was_loaded {
+                        ENGINE_SCANNING.store(true, Ordering::Relaxed);
                         idx.scan_directories(&reconcile_roots);
+                        ENGINE_SCANNING.store(false, Ordering::Relaxed);
                     }
                     if let Some(p) = crate::persist::default_snapshot_path() {
                         let _ = crate::persist::save_indexer(idx, &p);
@@ -138,7 +146,9 @@ pub unsafe extern "C" fn init_engine(root_paths_ptr: *const *const c_char, count
                     std::thread::sleep(std::time::Duration::from_secs(30 * 60));
                     if let Some(idx) = INDEXER.get() {
                         let roots = idx.roots.read().unwrap().clone();
+                        ENGINE_SCANNING.store(true, Ordering::Relaxed);
                         idx.scan_directories(&roots);
+                        ENGINE_SCANNING.store(false, Ordering::Relaxed);
                         if let Some(p) = crate::persist::default_snapshot_path() {
                             let _ = crate::persist::save_indexer(idx, &p);
                         }
@@ -187,6 +197,20 @@ pub unsafe extern "C" fn search(query_ptr: *const c_char, limit: usize, enable_p
 #[no_mangle]
 pub unsafe extern "C" fn free_search_results(res_ptr: *mut CSearchResult) {
     unsafe { free_c_search_result(res_ptr) };
+}
+
+/// Returns the engine status for the status-bar indicator:
+/// 0 = ready, 1 = scanning, 2 = hot update pending.
+#[no_mangle]
+pub extern "C" fn engine_status() -> u8 {
+    if ENGINE_SCANNING.load(Ordering::Relaxed) {
+        return 1;
+    }
+    let pending = INDEXER
+        .get()
+        .and_then(|i| i.pending_events.lock().ok().map(|q| !q.is_empty()))
+        .unwrap_or(false);
+    if pending { 2 } else { 0 }
 }
 
 #[cfg(test)]
