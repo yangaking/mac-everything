@@ -795,6 +795,10 @@ struct ResultRowView: View {
     let onToggleSelection: () -> Void
     
     var body: some View {
+        // A row is highlighted when it is either checked (multi-selected) or the
+        // current keyboard cursor — same solid highlight, no outline box.
+        let highlighted = isSelected || isCurrent
+
         HStack(spacing: 16) {
             // Name Column (Checkbox + Icon + Highlighted Text)
             HStack(spacing: 12) {
@@ -811,7 +815,7 @@ struct ResultRowView: View {
                 
                 highlightedText(for: item.name, query: query)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(isSelected ? .white : .primary)
+                    .foregroundColor(highlighted ? .white : .primary)
                     .lineLimit(1)
                 
                 Spacer(minLength: 0)
@@ -819,7 +823,7 @@ struct ResultRowView: View {
                 if index < 9 {
                     Text("⌘\(index + 1)")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(isSelected ? .white.opacity(0.9) : .secondary.opacity(0.3))
+                        .foregroundColor(highlighted ? .white.opacity(0.9) : .secondary.opacity(0.3))
                         .padding(.trailing, 4)
                 }
             }
@@ -829,7 +833,7 @@ struct ResultRowView: View {
             // Path Column
             Text(item.dirPath)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
+                .foregroundColor(highlighted ? .white.opacity(0.8) : .secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
@@ -838,30 +842,26 @@ struct ResultRowView: View {
             // Size Column
             Text(item.sizeStr)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
+                .foregroundColor(highlighted ? .white.opacity(0.8) : .secondary)
                 .frame(width: 70, alignment: .trailing)
             
             // Date Column
             Text(item.dateStr)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
+                .foregroundColor(highlighted ? .white.opacity(0.8) : .secondary)
                 .frame(width: 100, alignment: .center)
             
             // Type Column
             Text(item.typeStr)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
+                .foregroundColor(highlighted ? .white.opacity(0.8) : .secondary)
                 .frame(width: 60, alignment: .leading)
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.blue.opacity(0.6) : (isHovered ? Color.white.opacity(0.05) : Color.clear))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isCurrent ? Color.accentColor.opacity(0.7) : Color.clear, lineWidth: 1.5)
+                .fill(highlighted ? Color.blue.opacity(0.6) : (isHovered ? Color.white.opacity(0.05) : Color.clear))
         )
         .contentShape(Rectangle())
     }
